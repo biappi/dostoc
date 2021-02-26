@@ -5,12 +5,20 @@ let data = try! Data(contentsOf: URL(fileURLWithPath: "example.exe"))
 let mz = ParseMZ(data: data)
 let code = data.subdata(in: Int(mz.headerSize << 4) ..< data.count)
 
-let addressOfMain = 0x10000
+let addressOfMain = UInt64(0x10000)
 let addressOfSimplerFunction = UInt64((0x11c0 << 4) + 0x1c70)
 
 let udis = UDis86(data: code, base: 0x10000)
-let anals = XrefAnalisys(at: addressOfSimplerFunction, using: udis)
+let anals = XrefAnalisys(at: addressOfMain, using: udis)
+//let anals = XrefAnalisys(at: addressOfSimplerFunction, using: udis)
 
-// print_disasm(xref: anals)
-convert(anals: anals)
+print_disasm(xref: anals)
+// convert(anals: anals)
+
+print()
+print(" --- ")
+print()
+
+let cfg = CFGGraph(from: anals)
+cfg.dump()
 

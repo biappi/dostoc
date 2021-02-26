@@ -101,6 +101,25 @@ enum InstructionBranches {
     case jcc(next: UInt64, target: UInt64)
     case call(next: UInt64, target: UInt64)
     case seq(next: UInt64)
+    
+    var string: String {
+        switch self {
+        case .none:
+            return "none"
+            
+        case .jmp(target: let t):
+            return "jmp  (\(t.hexString))"
+            
+        case .jcc(next: let n, target: let t):
+            return "jcc  (\(n.hexString), \(t.hexString))"
+            
+        case .call(next: let n, target: let t):
+            return "call (\(n.hexString), \(t.hexString))"
+            
+        case .seq(next: let n):
+            return "seq  (\(n.hexString))"
+        }
+    }
 }
 
 extension Instruction {
