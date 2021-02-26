@@ -12,6 +12,7 @@ struct Instruction {
     let pc: UInt64
     let mnemonic: ud_mnemonic_code
     let operands: (ud_operand, ud_operand, ud_operand, ud_operand)
+    let pfx_seg: UInt8
     
     let offset: UInt64
     let asm: String
@@ -71,6 +72,7 @@ class UDis86 {
             pc: ud.pc,
             mnemonic: ud_insn_mnemonic(&ud),
             operands: ud.operand,
+            pfx_seg: ud.pfx_seg,
             offset: ud_insn_off(&ud),
             asm: String(cString: ud_insn_asm(&ud), encoding: .utf8)!
         )
