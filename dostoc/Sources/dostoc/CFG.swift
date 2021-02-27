@@ -43,6 +43,8 @@ class CFGBlock {
         case .seq (next: let n               ): return [n]
         }
     }
+    
+    var backlinks = [UInt64]()
 }
 
 
@@ -85,6 +87,13 @@ class CFGGraph {
                 currentBlock = nil
             }
         }
+        
+        visit {
+            for node in $0.end {
+                blocks[node]?.backlinks.append($0.start)
+            }
+        }
+
     }
     
     func dump() {
@@ -92,9 +101,19 @@ class CFGGraph {
         print("    start: \(startBlock.start.hexString)")
         print("    blocks: \(blocks.count)")
         
-        for (_, block) in blocks.sorted(by: { $0.key < $1.key }) {
-            print("        \(block.start.hexString) -> \(block.end.map { $0.hexString }.joined(separator: ", ")) ")
+        let sortedBlocks = sortedBlocks()
+        
+        for block in sortedBlocks  {
+            let forward = block.end.map { $0.hexString }.joined(separator: ", ")
+            print("\t\t\(block.start.hexString) -> \(forward) ")
         }
+        print()
+        for block in sortedBlocks  {
+            let backwards = block.backlinks.map { $0.hexString }.joined(separator: ", ")
+            print("\t\t\(block.start.hexString) <- \(backwards) ")
+        }
+        
+        print()
         
         print("---")
         print("")
@@ -104,6 +123,24 @@ class CFGGraph {
         return blocks
             .sorted { $0.key < $1.key }
             .map { $0.value }
+    }
+    
+    func visit(_ visit: (CFGBlock) -> ()) {
+        var visited = Set<UInt64>()
+        var queue = [startBlock.start]
+        
+        while !queue.isEmpty {
+            let block = queue.removeFirst()
+            if visited.contains(block) {
+                continue
+            }
+            visited.insert(block)
+            
+            if let block = blocks[block] {
+                visit(block)
+                queue.append(contentsOf: block.end)
+            }
+        }
     }
     
 }
