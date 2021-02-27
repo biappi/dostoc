@@ -8,58 +8,61 @@
 import Foundation
 import udis86
 
-/*
 struct VariableName {
     let base: String
     let block: Int
     let index: Int
     
-    var string: String { "\(base)_\(block)_\(index)" }
+//    var string: String { "\(base)_\(block)_\(index)" }
+//    var ssa: SSAName { SSAName(name: "\(base)_\(block)", index: index) }
+
+    var string: String { "\(base)_\(index)" }
+    var ssa: SSAName { SSAName(name: "\(base)", index: index) }
+
 }
-*/
 
 struct MachineRegisters {
     let number: Int
     
-    var unnbound = [SSAName]()
+    var unnbound = [VariableName]()
     var regIndexes = [String : Int]()
 
-    private mutating func last(_ baseName: String) -> SSAName {
-        let name = "\(baseName)_\(number)"
-        
+    var defined = [VariableName]()
+    
+    mutating func last(_ name: String) -> VariableName {
         if let index = regIndexes[name] {
-            return SSAName(name: name, index: index)
+            return VariableName(base: name, block: number, index: index)
         }
         else {
-            let variable = SSAName(name: name, index: 0)
+            let variable = VariableName(base: name, block: number, index: 0)
             unnbound.append(variable)
-            regIndexes[name] = 1
+            regIndexes[name] = 0
             return variable
         }
     }
     
-    private mutating func new(_ baseName: String) -> SSAName {
-        let name = "\(baseName)_\(number)"
-
+    mutating func new(_ name: String) -> VariableName {
         let index = regIndexes[name, default: -1]
         regIndexes[name] = index + 1
-        return SSAName(name: name, index: index + 1)
+        let v =  VariableName(base: name, block: number, index: index + 1)
+        defined.append(v)
+        return v
     }
 
     mutating func last(_ designation: RegisterName.Designations) -> SSAName {
-        return last("\(designation)")
+        return last("\(designation)").ssa
     }
 
     mutating func new(_ designation: RegisterName.Designations) -> SSAName {
-        return new("\(designation)")
+        return new("\(designation)").ssa
     }
 
     mutating func lastTemp() -> SSAName {
-        return last("temp")
+        return last("temp").ssa
     }
 
     mutating func new() -> SSAName {
-        return new("temp")
+        return new("temp").ssa
     }
     
 }
@@ -68,44 +71,155 @@ struct Converter {
     
     let cfg: CFGGraph
     
-    var registers  = MachineRegisters(number: 0)
     var statements = [SSAStatement]()
 
+    fileprivate func printBlockStatements(_ blockStatements: [(Instruction?, [SSAStatement])]) {
+        for (insn, ssa) in blockStatements {
+            for (i, stmt) in ssa.enumerated() {
+                let dump = stmt.dump
+                
+                if i == 0 {
+                    let width = 40
+                    let spc = String(repeating: " ", count: width - dump.count)
+                    
+                    print("\t\(dump)\(spc)\(insn?.asm ?? "")")
+                }
+                else {
+                    print("\t\(dump)")
+                }
+            }
+        }
+    }
+    
     mutating func convert() {
         
-        for (blockNr, block) in cfg.sortedBlocks().enumerated() {
-            registers = MachineRegisters(number: blockNr)
-            let blockStatements = block.instructions.map { ($0, convert(insn:$0)) }
+        var blockNr = 0
+
+        struct SSABlock {
+            var blockNr: Int
+            var blockName: String
+            var blockStart: UInt64
             
-            let blockName = String(format: "loc_%x:", block.start)
-                                   
-            let unbound = registers.unnbound.map { $0.dump }.joined(separator: ", ")
-            print("Block \(blockNr) -  \(blockName) -- Unbound: [\(unbound)]")
-            print()
+            var cfgBlockBacklinks: [UInt64]
+            var cfgBlockForwardlinks: [UInt64]
+            var ssaBlockBacklinks: [Int]
+            var ssaBlockForwardlinks: [Int]
             
-            for (insn, ssa) in blockStatements {
-                for (i, stmt) in ssa.enumerated() {
-                    let dump = stmt.dump
-                    
-                    if i == 0 {
-                        let width = 30
-                        let spc = String(repeating: " ", count: width - dump.count)
-                        
-                        print("\t\(dump)\(spc)\(insn.asm)")
-                    }
-                    else {
-                        print("\t\(dump)")
+            var blockStatements: [(Instruction?, [SSAStatement])]
+        }
+        
+        var ssaBlocks = [Int : SSABlock]()
+        var cfgToSsa = [UInt64 : Int]()
+        var ssaToCfg = [Int : UInt64]()
+            
+        var registers = MachineRegisters(number: blockNr)
+
+        var phisForDescendants = [Int : [Int : [VariableName] ]]()
+        
+        cfg.visit {
+            block in
+            
+            // variablename -> [(parent, parentidx) ...]
+            var variables = [String : [(Int, Int)]]()
+            
+            if let myPhis = phisForDescendants[block.index] {
+                for (parent, parentVariables) in myPhis {
+                    for parentVariable in parentVariables {
+                        variables[parentVariable.base, default: []]
+                            .append((parent, parentVariable.index))
                     }
                 }
             }
+            
+            var phiStats = [SSAStatement]()
+            
+            for (name, parentvars) in variables {
+                phiStats.append(
+                    SSAAssignmentStatement(
+                        assign: SSAPhiExpression(name: name, variables: parentvars),
+                        to: SSARegVariable(name: registers.new(name).ssa)
+                    )
+                )
+            }
+            
+            registers.defined = []
+
+            let insnsStatements = block.instructions.map { insn in
+                (insn, convert(insn: insn, registers: &registers))
+            }
+            
+            let blockStatements = [(nil, phiStats)] + insnsStatements
+            
+            ssaBlocks[blockNr] = SSABlock(
+                blockNr: blockNr,
+                blockName: String(format: "loc_%x:", block.start),
+                blockStart: block.start,
+                
+                cfgBlockBacklinks: block.backlinks,
+                cfgBlockForwardlinks: block.end,
+                ssaBlockBacklinks: [],
+                ssaBlockForwardlinks: [],
+                                
+                blockStatements: blockStatements
+            )
+                        
+            for i in cfg.blocks[block.start]!.end {
+                let idx = cfg.blocks[i]!.index
+                phisForDescendants[idx, default: [:]][block.index] = registers.defined
+            }
+            
+            ssaToCfg[blockNr] = block.start
+            cfgToSsa[block.start] = blockNr
+            
+            blockNr += 1
+        }
         
+        for blockNr in ssaBlocks.keys {
+            ssaBlocks[blockNr]!.ssaBlockBacklinks
+                = ssaBlocks[blockNr]!.cfgBlockBacklinks.map { cfgToSsa[$0]! }
+            
+            ssaBlocks[blockNr]!.ssaBlockForwardlinks
+                = ssaBlocks[blockNr]!.cfgBlockForwardlinks.map { cfgToSsa[$0]! }
+        }
+        
+        
+        Visit(
+            root: 0,
+            edges: { ssaBlocks[$0]!.ssaBlockForwardlinks }
+        ) { ssaNode in
+            
+            let ssaBlock = ssaBlocks[ssaNode]!
+            
+            let backlinks = ssaBlock.cfgBlockBacklinks.map { $0.hexString }.joined(separator: ", ")
+            
+            print("Block \(ssaBlock.blockNr) - \(ssaBlock.blockName) (\(backlinks))")
             print()
-            print("\t\(registers.regIndexes)")
+            printBlockStatements(ssaBlock.blockStatements)
             print()
+
+//            for (p, phis) in zip(ssaBlock.ssaBlockBacklinks, ssaBlock.phis) {
+//                print("\t\(p): \(phis)")
+//            }
+            
+//            print("Variables defined here")
+            
+//            ssaBlock
+//                .blockStatements
+//                .flatMap { $0.1 }
+//                .compactMap { $0 as? SSAAssignmentStatement}
+//                .compactMap { $0.variable as? SSARegVariable }
+//                .map { $0.name }
+//                .forEach {
+//                    print($0)
+//                }
+            
+//            print()
+//            print("\t\(ssaBlock.registers.regIndexes)")
+//            print()
         }
     }
 
-    mutating func convert(insn: Instruction) -> [SSAStatement] {
+    mutating func convert(insn: Instruction, registers: inout MachineRegisters) -> [SSAStatement] {
         let op0 = insn.operands.0
         let op1 = insn.operands.1
 

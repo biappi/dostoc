@@ -71,6 +71,19 @@ struct SSADiffExpression: SSAExpression {
     var dump: String { "\(lhs.dump) - \(rhs.dump)" }
 }
 
+struct SSAPhiExpression: SSAExpression {
+    let name: String
+    let variables: [(Int, Int)]
+    
+    var dump: String {
+        let d = variables
+            .map { "\(name)_\($0.1) : \($0.0)"}
+            .joined(separator: ", ")
+        
+        return "phi(\(d))"
+    }
+}
+
 /* - */
 
 protocol SSAStatement {

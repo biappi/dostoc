@@ -16,6 +16,7 @@ extension UInt64 {
 
 
 class CFGBlock {
+    var index = 0
     var instructions = [Instruction]()
     
     func add(instruction: Instruction) {
@@ -88,7 +89,11 @@ class CFGGraph {
             }
         }
         
+        var idx = 0
         visit {
+            $0.index = idx
+            idx += 1
+            
             for node in $0.end {
                 blocks[node]?.backlinks.append($0.start)
             }
@@ -126,21 +131,34 @@ class CFGGraph {
     }
     
     func visit(_ visit: (CFGBlock) -> ()) {
-        var visited = Set<UInt64>()
-        var queue = [startBlock.start]
-        
-        while !queue.isEmpty {
-            let block = queue.removeFirst()
-            if visited.contains(block) {
-                continue
-            }
-            visited.insert(block)
-            
-            if let block = blocks[block] {
-                visit(block)
-                queue.append(contentsOf: block.end)
-            }
+        Visit(
+            root: startBlock.start,
+            edges: { blocks[$0]!.end }
+        )
+        {
+            visit(blocks[$0]!)
         }
     }
     
+}
+
+func Visit<NodeId: Hashable>(
+    root: NodeId,
+    edges: (NodeId) -> [NodeId],
+    _ visit: (NodeId) -> ())
+{
+    var visited = Set<NodeId>()
+    var queue = [root]
+    
+    while !queue.isEmpty {
+        let node = queue.removeFirst()
+        
+        if visited.contains(node) {
+            continue
+        }
+        
+        visited.insert(node)
+        visit(node)
+        queue.append(contentsOf: edges(node))
+    }
 }
