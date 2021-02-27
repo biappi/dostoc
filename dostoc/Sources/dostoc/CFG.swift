@@ -99,4 +99,11 @@ class CFGGraph {
         print("---")
         print("")
     }
+    
+    func sortedBlocks() -> [CFGBlock] {
+        return blocks
+            .sorted { $0.key < $1.key }
+            .map { $0.value }
+    }
+    
 }

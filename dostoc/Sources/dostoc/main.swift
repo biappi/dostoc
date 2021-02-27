@@ -28,3 +28,5 @@ print()
 let cfg = CFGGraph(from: anals)
 cfg.dump()
 
+var c = Converter(cfg: cfg)
+c.convert()
