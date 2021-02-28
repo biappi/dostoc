@@ -46,7 +46,7 @@ func operandValue(operand: ud_operand, instruction: Instruction) -> String {
         fatalError()
         
     case .mem:
-        assert(instruction.pfx_seg == 0)
+        assert(instruction.prefixSegment == nil)
         assert(operand.base == UD_NONE)
         assert(operand.index == UD_NONE)
 
@@ -115,7 +115,7 @@ func convert(anals: InstructionXrefs) {
             
             print("    if (!\(zflagAssigner.last()))")
             
-            let loc = i.pc + i.operands.0.int64value
+            let loc = UInt64(Int64(i.pc) + i.operands.0.int64value)
             let label = labelName(addr: loc)
             print("        goto \(label);")
             

@@ -268,7 +268,7 @@ struct Converter {
                 ]
             }
             else if op0.operandType == .reg && op1.operandType == .mem {
-                assert(insn.pfx_seg == 0)
+                assert(insn.prefixSegment == nil)
                 let op1mem = MemoryOperand(op1)
                 return [
                     SSAAssignmentStatement(
@@ -292,6 +292,17 @@ struct Converter {
                     )
                 ]
             }
+            else if op0.operandType == .mem && op1.operandType == .reg {
+                let seg  = insn.prefixSegment.map { "\($0):"} ?? ""
+                let name = "\(seg)\(op0.registerName.designation)"
+                
+                return [
+                    SSAAssignmentStatement(
+                        assign: SSARegExpression(name: registers.last(op1.registerName.designation)),
+                        to: SSASegmentedMemoryVariable(address: name)
+                    )
+                ]
+            }
             else {
                 fatalError()
             }
@@ -306,15 +317,127 @@ struct Converter {
         case UD_Ijae:
             assert(op0.operandType == .jimm)
             
-            let offset = insn.pc + op0.int64value
+            let offset = UInt64(Int64(insn.pc) + op0.int64value)
             let label = SSALabel(target: String(format: "loc_%x", offset))
             
             return [
                 SSAJmpStatement(type: "jae", target: label)
             ]
+        
+        case UD_Ijns:
+            assert(op0.operandType == .jimm)
             
+            let offset = UInt64(Int64(insn.pc) + op0.int64value)
+            let label = SSALabel(target: String(format: "loc_%x", offset))
+            
+            return [
+                SSAJmpStatement(type: "jns", target: label)
+            ]
+
         case UD_Iretf:
             return [SSAEndStatement()]
+            
+        case UD_Iadd:
+            assert(op0.operandType == .reg)
+            assert(op1.operandType == .imm)
+            
+            return [
+                SSAAssignmentStatement(
+                    assign: SSASumExpression(
+                        lhs: SSARegExpression(name: registers.last(op0.registerName.designation)),
+                        rhs: SSAConstExpression(value: Int(op1.uint64value))
+                    ),
+                    to: SSARegVariable(name: registers.new(op0.registerName.designation))
+                )
+            ]
+
+        case UD_Isub:
+            assert(op0.operandType == .reg)
+            assert(op1.operandType == .reg)
+            
+            return [
+                SSAAssignmentStatement(
+                    assign: SSADiffExpression(
+                        lhs: SSARegExpression(name: registers.last(op0.registerName.designation)),
+                        rhs: SSARegExpression(name: registers.last(op1.registerName.designation))
+                    ),
+                    to: SSARegVariable(name: registers.new(op0.registerName.designation))
+                )
+            ]
+            
+        case UD_Imul:
+            assert(op0.operandType == .reg)
+            
+            return [
+                SSAAssignmentStatement(
+                    assign: SSAMulExpression(
+                        lhs: SSARegExpression(name: registers.last(op0.registerName.designation)),
+                        rhs: SSARegExpression(name: registers.last(op1.registerName.designation))
+                    ),
+                    to: SSARegVariable(name: registers.new(op0.registerName.designation))
+                )
+            ]
+
+        case UD_Ishr:
+            assert(op0.operandType == .reg)
+            assert(op1.operandType == .const)
+            
+            return [
+                SSAAssignmentStatement(
+                    assign: SSAShiftRight(
+                        lhs: SSARegExpression(name: registers.last(op0.registerName.designation)),
+                        rhs: SSAConstExpression(value: Int(op1.uint64value))
+                    ),
+                    to: SSARegVariable(name: registers.new(op0.registerName.designation))
+                )
+            ]
+
+        case UD_Iinc:
+            assert(op0.operandType == .reg)
+            
+            return [
+                SSAAssignmentStatement(
+                    assign: SSASumExpression(
+                        lhs: SSARegExpression(name: registers.last(op0.registerName.designation)),
+                        rhs: SSAConstExpression(value: 1)
+                    ),
+                    to: SSARegVariable(name: registers.new(op0.registerName.designation))
+                )
+            ]
+
+        case UD_Idec:
+            assert(op0.operandType == .reg)
+            
+            return [
+                SSAAssignmentStatement(
+                    assign: SSADiffExpression(
+                        lhs: SSARegExpression(name: registers.last(op0.registerName.designation)),
+                        rhs: SSAConstExpression(value: 1)
+                    ),
+                    to: SSARegVariable(name: registers.new(op0.registerName.designation))
+                )
+            ]
+
+        case UD_Iloop:
+            assert(op0.operandType == .jimm)
+            
+            let offset = UInt64(Int64(insn.pc) + op0.int64value)
+            let label = SSALabel(target: String(format: "loc_%x", offset))
+
+            return [
+                SSAJmpStatement(type: "loop", target: label)
+            ]
+            
+        case UD_Icall:
+            assert(op0.operandType == .jimm)
+
+            let offset = UInt64(Int64(insn.pc) + op0.int64value)
+            let label = SSALabel(target: String(format: "loc_%x", offset))
+
+            return [
+                SSACallStatement(target: label)
+            ]
+
             
         default:
             fatalError()

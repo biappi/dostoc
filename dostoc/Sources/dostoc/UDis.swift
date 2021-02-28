@@ -8,11 +8,36 @@
 import Foundation
 import udis86
 
+enum Segment {
+    case cs
+    case ss
+    case ds
+    case es
+    case fs
+    case gs
+    
+    init?(_ int: ud_type) {
+        if int == UD_NONE {
+            return nil
+        }
+        
+        switch int {
+        case UD_R_CS: self = .cs
+        case UD_R_SS: self = .ss
+        case UD_R_DS: self = .ds
+        case UD_R_ES: self = .es
+        case UD_R_FS: self = .fs
+        case UD_R_GS: self = .gs
+        default: fatalError()
+        }
+    }
+}
+
 struct Instruction {
     let pc: UInt64
     let mnemonic: ud_mnemonic_code
     let operands: (ud_operand, ud_operand, ud_operand, ud_operand)
-    let pfx_seg: UInt8
+    let prefixSegment: Segment?
     
     let offset: UInt64
     let asm: String
@@ -72,7 +97,7 @@ class UDis86 {
             pc: ud.pc,
             mnemonic: ud_insn_mnemonic(&ud),
             operands: ud.operand,
-            pfx_seg: ud.pfx_seg,
+            prefixSegment: Segment(ud_type(UInt32(ud.pfx_seg))),
             offset: ud_insn_off(&ud),
             asm: String(cString: ud_insn_asm(&ud), encoding: .utf8)!
         )

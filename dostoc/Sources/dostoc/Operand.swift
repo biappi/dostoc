@@ -39,12 +39,12 @@ extension ud_operand {
         }
     }
     
-    var int64value: UInt64 {
+    var int64value: Int64 {
         switch operandSize {
-        case .size_8:  return UInt64(lval.sbyte)
-        case .size_16: return UInt64(lval.sword)
-        case .size_32: return UInt64(lval.sdword)
-        case .size_64: return UInt64(lval.sqword)
+        case .size_8:  return Int64(lval.sbyte)
+        case .size_16: return Int64(lval.sword)
+        case .size_32: return Int64(lval.sdword)
+        case .size_64: return Int64(lval.sqword)
         }
     }
 }

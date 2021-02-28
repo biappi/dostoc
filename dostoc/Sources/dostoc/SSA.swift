@@ -33,6 +33,12 @@ struct SSAMemoryVariable: SSAVariable {
     var dump: String { "memory(\(name.dump))"}
 }
 
+struct SSASegmentedMemoryVariable: SSAVariable {
+    let address: String
+    
+    var dump: String { "memory(\(address))"}
+}
+
 /* - */
 
 protocol SSAExpression {
@@ -69,6 +75,20 @@ struct SSADiffExpression: SSAExpression {
     let rhs: SSAExpression
     
     var dump: String { "\(lhs.dump) - \(rhs.dump)" }
+}
+
+struct SSAMulExpression: SSAExpression {
+    let lhs: SSAExpression
+    let rhs: SSAExpression
+    
+    var dump: String { "\(lhs.dump) * \(rhs.dump)" }
+}
+
+struct SSAShiftRight: SSAExpression {
+    let lhs: SSAExpression
+    let rhs: SSAExpression
+    
+    var dump: String { "\(lhs.dump) << \(rhs.dump)" }
 }
 
 struct SSAPhiExpression: SSAExpression {
@@ -112,6 +132,12 @@ struct SSAJmpStatement: SSAStatement {
     let target: SSALabel
     
     var dump: String { "jmp(\(type)) \(target.target)" }
+}
+
+struct SSACallStatement: SSAStatement {
+    let target: SSALabel
+    
+    var dump: String { "call(\(target.target))" }
 }
 
 struct SSAEndStatement: SSAStatement {
