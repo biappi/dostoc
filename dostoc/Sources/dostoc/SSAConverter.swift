@@ -24,7 +24,7 @@ struct MachineRegisters {
     var unnbound = [VariableName]()
     var regIndexes = [String : Int]()
 
-    var defined = [VariableName]()
+    var defined = [String: Int]()
     
     mutating func last(_ name: String) -> VariableName {
         if let index = regIndexes[name] {
@@ -42,7 +42,7 @@ struct MachineRegisters {
         let index = regIndexes[name, default: -1]
         regIndexes[name] = index + 1
         let v =  VariableName(base: name, block: number, index: index + 1)
-        defined.append(v)
+        defined[name] = v.index
         return v
     }
 
@@ -90,129 +90,59 @@ struct Converter {
     
     mutating func convert() {
         
-        var blockNr = 0
-
-        struct SSABlock {
-            var blockNr: Int
-            var blockName: String
-            var blockStart: UInt64
-            
-            var cfgBlockBacklinks: [UInt64]
-            var cfgBlockForwardlinks: [UInt64]
-            var ssaBlockBacklinks: [Int]
-            var ssaBlockForwardlinks: [Int]
-            
-            var blockStatements: [(Instruction?, [SSAStatement])]
-        }
+        typealias SSAStatementBlock = [(Instruction?, [SSAStatement])]
         
-        var ssaBlocks = [Int : SSABlock]()
-        var cfgToSsa = [UInt64 : Int]()
-        var ssaToCfg = [Int : UInt64]()
-            
-        var registers = MachineRegisters(number: blockNr)
-
-        var phisForDescendants = [Int : [Int : [VariableName] ]]()
+        var registers = MachineRegisters(number: 0)
+        
+        var ssaBlocks = [UInt64 : SSAStatementBlock]()
+        var varsDefined = [UInt64 : [String : Int]]()
+        
+        let doms = dominators(graph: cfg)
+        let frontier = dominanceFrontier(graph: cfg, doms: doms)
+        
+        //         at block  varname   from block, idx
+        var phis = [UInt64 : [String : [UInt64 : Int]]]()
         
         cfg.visit {
             block in
+                                    
+            registers.defined = [:]
             
-            // variablename -> [(parent, parentidx) ...]
-            var variables = [String : [(Int, Int)]]()
-            
-            if let myPhis = phisForDescendants[block.index] {
-                for (parent, parentVariables) in myPhis {
-                    for parentVariable in parentVariables {
-                        variables[parentVariable.base, default: []]
-                            .append((parent, parentVariable.index))
-                    }
-                }
-            }
-            
-            var phiStats = [SSAStatement]()
-            
-            for (name, parentvars) in variables {
-                phiStats.append(
-                    SSAAssignmentStatement(
-                        assign: SSAPhiExpression(name: name, variables: parentvars),
-                        to: SSARegVariable(name: registers.new(name).ssa)
-                    )
-                )
-            }
-            
-            registers.defined = []
-
-            let insnsStatements = block.instructions.map { insn in
+            ssaBlocks[block.start] = block.instructions.map { insn in
                 (insn, convert(insn: insn, registers: &registers))
             }
             
-            let blockStatements = [(nil, phiStats)] + insnsStatements
+            varsDefined[block.start] = registers.defined
             
-            ssaBlocks[blockNr] = SSABlock(
-                blockNr: blockNr,
-                blockName: String(format: "loc_%x:", block.start),
-                blockStart: block.start,
-                
-                cfgBlockBacklinks: block.backlinks,
-                cfgBlockForwardlinks: block.end,
-                ssaBlockBacklinks: [],
-                ssaBlockForwardlinks: [],
-                                
-                blockStatements: blockStatements
-            )
-                        
-            for i in cfg.blocks[block.start]!.end {
-                let idx = cfg.blocks[i]!.index
-                phisForDescendants[idx, default: [:]][block.index] = registers.defined
+            for frontierBlock in frontier[block.start] ?? [] {
+                for (variableName, variableIndex) in registers.defined {
+                    phis[frontierBlock, default: [:]][variableName, default: [:]][block.start] = variableIndex
+                }
             }
-            
-            ssaToCfg[blockNr] = block.start
-            cfgToSsa[block.start] = blockNr
-            
-            blockNr += 1
         }
         
-        for blockNr in ssaBlocks.keys {
-            ssaBlocks[blockNr]!.ssaBlockBacklinks
-                = ssaBlocks[blockNr]!.cfgBlockBacklinks.map { cfgToSsa[$0]! }
+        var i = 0
+        cfg.visit {
+            cfgblock in
             
-            ssaBlocks[blockNr]!.ssaBlockForwardlinks
-                = ssaBlocks[blockNr]!.cfgBlockForwardlinks.map { cfgToSsa[$0]! }
-        }
-        
-        
-        Visit(
-            root: 0,
-            edges: { ssaBlocks[$0]!.ssaBlockForwardlinks }
-        ) { ssaNode in
-            
-            let ssaBlock = ssaBlocks[ssaNode]!
-            
-            let backlinks = ssaBlock.cfgBlockBacklinks.map { $0.hexString }.joined(separator: ", ")
-            
-            print("Block \(ssaBlock.blockNr) - \(ssaBlock.blockName) (\(backlinks))")
-            print()
-            printBlockStatements(ssaBlock.blockStatements)
-            print()
+            let backlinks = cfgblock.backlinks.map { $0.hexString }.joined(separator: ", ")
 
-//            for (p, phis) in zip(ssaBlock.ssaBlockBacklinks, ssaBlock.phis) {
-//                print("\t\(p): \(phis)")
-//            }
+            print("Block \(i) - (\(backlinks))")
+            print()
             
-//            print("Variables defined here")
+//            print(phis[cfgblock.start])
             
-//            ssaBlock
-//                .blockStatements
-//                .flatMap { $0.1 }
-//                .compactMap { $0 as? SSAAssignmentStatement}
-//                .compactMap { $0.variable as? SSARegVariable }
-//                .map { $0.name }
-//                .forEach {
-//                    print($0)
-//                }
+            print()
+            printBlockStatements(ssaBlocks[cfgblock.start]!)
+            print()
             
+//            print("    Variables:")
+//            print("       ", varsDefined[cfgblock.start]!)
+//            print("    Need to be in frontier")
+//            print("       ", frontier[cfgblock.start] ?? [])
 //            print()
-//            print("\t\(ssaBlock.registers.regIndexes)")
-//            print()
+
+            i += 1
         }
     }
 
@@ -220,6 +150,8 @@ struct Converter {
         let op0 = insn.operands.0
         let op1 = insn.operands.1
 
+//        print(insn.asm)
+        
         switch insn.mnemonic {
         
         case UD_Ipush:

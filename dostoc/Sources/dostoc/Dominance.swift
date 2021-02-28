@@ -140,7 +140,7 @@ func dominanceFrontier<G: Graph>(
                 var runner = p
                 
                 while runner != doms[b] {
-                    frontiers[b, default:[]].append(runner)
+                    frontiers[runner, default:[]].append(b)
                     runner = doms[runner]!
                 }
             }
