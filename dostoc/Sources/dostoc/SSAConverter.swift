@@ -13,9 +13,6 @@ struct VariableName {
     let block: Int
     let index: Int
     
-//    var string: String { "\(base)_\(block)_\(index)" }
-//    var ssa: SSAName { SSAName(name: "\(base)_\(block)", index: index) }
-
     var string: String { "\(base)_\(index)" }
     var ssa: SSAName { SSAName(name: "\(base)", index: index) }
 

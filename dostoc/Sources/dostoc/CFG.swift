@@ -49,10 +49,12 @@ class CFGBlock {
 }
 
 
-class CFGGraph {
-
+class CFGGraph: Graph {
     var blocks: [UInt64 : CFGBlock]
     var startBlock: CFGBlock
+ 
+    var start:  UInt64  { startBlock.start   }
+    var nodes: [UInt64] { Array(blocks.keys) }
     
     init(from insns: InstructionXrefs) {
         blocks = [:]
@@ -100,6 +102,14 @@ class CFGGraph {
         }
 
     }
+
+    func predecessors(of node: UInt64) -> [UInt64] {
+        return blocks[node]!.backlinks
+    }
+    
+    func successors(of node: UInt64) -> [UInt64] {
+        return blocks[node]!.end
+    }
     
     func dump() {
         print("CFG")
@@ -109,8 +119,8 @@ class CFGGraph {
         let sortedBlocks = sortedBlocks()
         
         for block in sortedBlocks  {
-            let forward = block.end.map { $0.hexString }.joined(separator: ", ")
-            print("\t\t\(block.start.hexString) -> \(forward) ")
+            let forward = block.end.map { "\"\($0)\"" }.joined(separator: ", ")
+            print("\t\t\"\(block.start)\" -> \(forward)")
         }
         print()
         for block in sortedBlocks  {
