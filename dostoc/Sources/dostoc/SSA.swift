@@ -205,16 +205,37 @@ struct SSAMemoryAssignmentStatement: SSAStatement {
     }
 }
 
-struct SSASegmentedMemoryAssignmentStatement: SSAStatement {
-    let address: String
+struct SSASegmentedMemoryRegAssignmentStatement: SSAStatement {
+    var segment: SSARegExpression?
+    var address: SSARegExpression
     var expression: SSAExpression
     
-    var dump: String { "memory(\(address)) = \(expression.dump)" }
+    var dump: String {
+        if let segment = segment {
+            return "memory(\(segment.dump):\(address.dump)) = \(expression.dump)"
+        }
+        else {
+            return "memory(\(address.dump)) = \(expression.dump)"
+        }
+    }
     
-    var allVariables: Set<SSAName> { expression.variables }
-    var rhsVariables: Set<SSAName> { expression.variables }
+    var rhsVariables: Set<SSAName> {
+        if let segment = segment {
+            return expression
+                .variables
+                .union(segment.variables)
+                .union(address.variables)
+        }
+        else {
+            return expression
+                .variables
+                .union(address.variables)
+        }
+    }
     
     mutating func renameRHS(name: String, index: Int) {
+        segment?.rename(name: name, index: index)
+        address.rename(name: name, index: index)
         expression.rename(name: name, index: index)
     }
 }
@@ -241,7 +262,19 @@ struct SSACallStatement: SSAStatement {
 }
 
 struct SSAEndStatement: SSAStatement {
-    var dump: String { "end" }
+    var sp = SSARegExpression(name: RegisterName.Designations.sp.ssa)
+    var ax = SSARegExpression(name: RegisterName.Designations.ax.ssa)
+    
+    var dump: String { "end(\(sp.dump), \(ax.dump))" }
+    
+    var rhsVariables: Set<SSAName> {
+        Set([sp.name, ax.name])
+    }
+    
+    mutating func renameRHS(name: String, index: Int) {
+        sp.rename(name: name, index: index)
+        ax.rename(name: name, index: index)
+    }
 }
 
 /* - */

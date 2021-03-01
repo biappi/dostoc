@@ -344,7 +344,9 @@ struct Converter {
 
         while !worklist.isEmpty {
             let stmtIdx = worklist.removeFirst()
-            if logDeadCodeElimination { print("\(stmtIdx) -- \(statementFor(stmtIdx).dump)") }
+            let stmt = statementFor(stmtIdx)
+            
+            if logDeadCodeElimination { print("\(stmtIdx) -- \(stmtIdx.dump)") }
             
             if deleted.contains(stmtIdx) {
                 if logDeadCodeElimination {  print(" > already deleted \(stmtIdx)") }
@@ -365,7 +367,7 @@ struct Converter {
 
             deleted.formUnion(statementsDefining[variable] ?? [])
             
-            let rhs = statementFor(stmtIdx).rhsVariables
+            let rhs = stmt.rhsVariables
             if logDeadCodeElimination { print("        >>", rhs.map { $0.dump }) }
             
             for variable in rhs {
@@ -416,7 +418,7 @@ extension SSABlock {
         let op1 = insn.operands.1
 
         typealias regs = RegisterName.Designations
-//        print(insn.asm)
+        print(insn.asm)
         
         switch insn.mnemonic {
         
@@ -489,12 +491,15 @@ extension SSABlock {
                 ]
             }
             else if op0.operandType == .mem && op1.operandType == .reg {
-                let seg  = insn.prefixSegment.map { "\($0):"} ?? ""
-                let name = "\(seg)\(op0.registerName.designation)"
+                let segment = insn
+                    .prefixSegment
+                    .flatMap { SSAName(name: "\($0)")}
+                    .flatMap { SSARegExpression(name: $0)}
                 
                 return [
-                    SSASegmentedMemoryAssignmentStatement(
-                        address:  name,
+                    SSASegmentedMemoryRegAssignmentStatement(
+                        segment: segment,
+                        address: SSARegExpression(name: op0.registerName.ssa),
                         expression: SSARegExpression(name: op1.registerName.ssa)
                     )
                 ]
@@ -635,6 +640,13 @@ extension SSABlock {
             let label = SSALabel(target: String(format: "loc_%x", offset))
 
             return [
+                SSAVariableAssignmentStatement(
+                    name: regs.cx.ssa,
+                    expression: SSADiffExpression(
+                        lhs: SSARegExpression(name: regs.cx.ssa),
+                        rhs: SSAConstExpression(value: 1)
+                    )
+                ),
                 SSAJmpStatement(type: "loop", target: label)
             ]
             
