@@ -69,6 +69,9 @@ func operandValue(operand: ud_operand, instruction: Instruction) -> String {
         
     case .const:
         fatalError()
+        
+    case .none:
+        fatalError()
     }
 }
 

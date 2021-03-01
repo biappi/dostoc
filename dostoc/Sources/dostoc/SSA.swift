@@ -108,7 +108,7 @@ protocol SSAStatement {
 }
 
 extension SSAStatement {
-    var allVariables: Set<SSAName> { Set() }
+    var allVariables: Set<SSAName> { lhsVariables.union(rhsVariables) }
     var lhsVariables: Set<SSAName> { Set() }
     var rhsVariables: Set<SSAName> { Set() }
     
@@ -128,6 +128,22 @@ struct SSAPhiAssignmentStatement: SSAStatement {
             .joined(separator: ", ")
         
         return "\(name)_\(index) = phi(\(d))"
+    }
+    
+    var lhsVariables: Set<SSAName> {
+        Set([SSAName(name: name, index: index)])
+    }
+    
+    var rhsVariables: Set<SSAName> {
+        Set(phis.map { SSAName(name: name, index: $0)})
+    }
+    
+    func renameRHS(name: String, index: Int) {
+        fatalError()
+    }
+    
+    func renameLHS(name: String, index: Int) {
+        fatalError()
     }
 }
 

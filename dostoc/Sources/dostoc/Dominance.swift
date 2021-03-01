@@ -62,36 +62,39 @@ func dominators<G: Graph>(graph: G) -> [G.NodeId : G.NodeId] {
     for (i, nodeId) in reversePostorder.enumerated() {
         nodesToPostorderIndex[nodeId] = i
     }
-        
+    
     while changed {
         changed = false
-        
+                
         for b in reversePostorder {
             if b == graph.start {
                 continue
             }
             
-            var newIdom = graph.predecessors(of: b).first!
-            doms[b] = newIdom
+            var newIdom: G.NodeId? = nil
             
-            let others  = graph.predecessors(of: b).dropFirst()
-            
-            for p in others {
-                if doms[p] != nil {
-                    newIdom = intersect(
-                        graph: graph,
-                        b1: p,
-                        b2: newIdom,
-                        doms: doms,
-                        nodesToIndexes: nodesToPostorderIndex,
-                        indexesToNodes: reversePostorder
-                    )
+            for p in graph.predecessors(of: b) {
+                if doms[p] == nil {
+                    continue
                 }
                 
-                if doms[b] != newIdom {
-                    doms[b] = newIdom
-                    changed = true
+                if newIdom == nil {
+                    newIdom = p
                 }
+                
+                newIdom = intersect(
+                    graph: graph,
+                    b1: p,
+                    b2: newIdom!,
+                    doms: doms,
+                    nodesToIndexes: nodesToPostorderIndex,
+                    indexesToNodes: reversePostorder
+                )
+            }
+            
+            if doms[b] != newIdom {
+                doms[b] = newIdom
+                changed = true
             }
         }
     }

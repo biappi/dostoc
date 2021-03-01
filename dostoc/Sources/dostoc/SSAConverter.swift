@@ -46,9 +46,12 @@ struct SSABlock {
         )
     }
     
-    func dump() {
-        for stmt in phiStatements {
-            let dump = stmt.dump
+    func dump(deleted: Set<StatementIndex>, blockId: UInt64) {
+        for (i, stmt) in phiStatements.enumerated() {
+            let dead = deleted.contains(.phi(blockId: blockId, phiNr: i))
+            let dood = dead ? "MORTO " : ""
+            
+            let dump = dood + stmt.dump
             let width = 80
             let spc2 = String(repeating: " ", count: width - dump.count)
             let vars = stmt.allVariables.map { $0.dump }.joined(separator: ", ")
@@ -56,9 +59,12 @@ struct SSABlock {
             print("\t\(dump)\(spc2)\(vars)")
         }
         
-        for (insn, ssa) in statements {
+        for (inNr, (insn, ssa)) in statements.enumerated() {
             for (i, stmt) in ssa.enumerated() {
-                let dump = stmt.dump
+                let dead = deleted.contains(.stmt(blockId: blockId, insn: inNr, stmt: i))
+                let dood = dead ? "MORTO " : ""
+                
+                let dump = dood + stmt.dump
                 
                 if i == 0 {
                     let width = 40
@@ -81,6 +87,29 @@ struct SSABlock {
         }
     }
 }
+
+enum StatementIndex :  Hashable {
+    case phi(blockId: UInt64, phiNr: Int)
+    case stmt(blockId: UInt64, insn: Int, stmt: Int)
+   
+    var blockId: UInt64 {
+        switch self {
+        case .phi(blockId: let blockId, _): return blockId
+        case .stmt(blockId: let blockId, _, _): return blockId
+        }
+    }
+    
+    func dump() -> String {
+        switch self {
+        case .phi(blockId: let blockId, phiNr: let phiNr):
+            return "phi at: \(blockId.hexString) \(phiNr)"
+            
+        case .stmt(blockId: let blockId, insn: let insn, stmt: let stmt):
+            return "stmt at: \(blockId.hexString) \(insn) \(stmt)"
+        }
+    }
+}
+
 
 struct Converter {
     
@@ -242,6 +271,114 @@ struct Converter {
         rename(cfg.start)
     }
     
+    func forEachSSAStatementIndex(visit: (StatementIndex) -> ()) {
+        for (blockId, ssaBlock) in ssaBlocks {
+            for (i, _) in ssaBlock.phiStatements.enumerated() {
+                visit(StatementIndex.phi(blockId: blockId, phiNr: i))
+            }
+            
+            for (blockId, ssaBlock) in ssaBlocks {
+                for (i, (_, stmts)) in ssaBlock.statements.enumerated() {
+                    for (s, _) in stmts.enumerated() {
+                        visit(StatementIndex.stmt(blockId: blockId, insn: i, stmt: s))
+                    }
+                }
+            }
+        }
+    }
+    
+    func statementFor(_ idx: StatementIndex) -> SSAStatement {
+        switch idx {
+        case .phi(blockId: let blockId, phiNr: let phiNr):
+            return ssaBlocks[blockId]!.phiStatements[phiNr]
+            
+        case .stmt(blockId: let blockId, insn: let insn, stmt: let stmt):
+            return ssaBlocks[blockId]!.statements[insn].1[stmt]
+        }
+    }
+
+    func forEachSSAStatement(visit: (SSAStatement) -> ()) {
+        forEachSSAStatementIndex { idx in
+            visit(statementFor(idx))
+        }
+    }
+    
+    var deleted = Set<StatementIndex>()
+
+    var logDeadCodeElimination = false
+    
+    mutating func deadCodeElimination() {
+        var definitions = [StatementIndex : SSAName]()
+        var statementsUsing = [SSAName : Set<StatementIndex>]()
+        var statementsDefining = [SSAName : Set<StatementIndex>]()
+
+        if logDeadCodeElimination { print() }
+        if logDeadCodeElimination { print() }
+        
+        forEachSSAStatementIndex { idx in
+            let stmt = statementFor(idx)
+            if logDeadCodeElimination { print(stmt.dump, "    ", idx) }
+            
+            for v in stmt.lhsVariables {
+                statementsDefining[v, default: Set()].insert(idx)
+                if logDeadCodeElimination { print("     defining  \(v.dump)") }
+                definitions[idx] = v
+                
+                if statementsUsing[v] == nil {
+                    statementsUsing[v] = []
+                    if logDeadCodeElimination { print("     using \(v.dump) -> []") }
+                }
+            }
+
+            for v in stmt.rhsVariables {
+                statementsUsing[v, default: Set()].insert(idx)
+                if logDeadCodeElimination { print("     using  \(v.dump)") }
+            }
+            if logDeadCodeElimination { print() }
+        }
+
+        if logDeadCodeElimination { print() }
+        if logDeadCodeElimination { print() }
+        
+        var worklist = Set(definitions.keys)
+
+        while !worklist.isEmpty {
+            let stmtIdx = worklist.removeFirst()
+            if logDeadCodeElimination { print("\(stmtIdx) -- \(statementFor(stmtIdx).dump)") }
+            
+            if deleted.contains(stmtIdx) {
+                if logDeadCodeElimination {  print(" > already deleted \(stmtIdx)") }
+                continue
+            }
+            
+            guard let variable = definitions[stmtIdx] else {
+                if logDeadCodeElimination { print(" > no var in defs") }
+                continue
+            }
+            
+            if statementsUsing[variable, default: []].count != 0 {
+                if logDeadCodeElimination { print(" > count != 0 -- \(variable.dump) - \(statementsUsing[variable] ?? [])") }
+                continue
+            }
+            
+            if logDeadCodeElimination { print("    WANT TO ELIMINATE \(variable.dump)") }
+
+            deleted.formUnion(statementsDefining[variable] ?? [])
+            
+            let rhs = statementFor(stmtIdx).rhsVariables
+            if logDeadCodeElimination { print("        >>", rhs.map { $0.dump }) }
+            
+            for variable in rhs {
+                if logDeadCodeElimination { print("            >>", statementsDefining[variable, default: []].map { "\(statementFor($0).dump) - \($0)"}) }
+                worklist.formUnion(statementsDefining[variable, default: []])
+                
+                statementsUsing[variable]?.remove(stmtIdx)
+            }
+            
+        }
+    }
+        
+    
     mutating func convert() {
         doms = dominators(graph: cfg)
         frontier = dominanceFrontier(graph: cfg, doms: doms)
@@ -252,7 +389,8 @@ struct Converter {
         
         placePhis()
         rename()
-        
+        deadCodeElimination()
+            
         var i = 0
         cfg.visit {
             cfgblock in
@@ -263,7 +401,7 @@ struct Converter {
             print("Block \(i) [\(cfgblock.start.hexString)] - (\(backlinks)) --> (\(fwdlinks))")
             print()
             
-            ssaBlocks[cfgblock.start]?.dump()
+            ssaBlocks[cfgblock.start]?.dump(deleted: deleted, blockId: cfgblock.start)
             print()
             print()
 
@@ -424,18 +562,32 @@ extension SSABlock {
             ]
             
         case UD_Imul:
-            assert(op0.operandType == .reg)
-            
-            return [
-                SSAVariableAssignmentStatement(
-                    name: op0.registerName.ssa,
-                    expression: SSAMulExpression(
-                        lhs: SSARegExpression(name: op0.registerName.ssa),
-                        rhs: SSARegExpression(name: op1.registerName.ssa)
+            if op0.operandType == .reg && op1.operandType == .reg {
+                return [
+                    SSAVariableAssignmentStatement(
+                        name: op0.registerName.ssa,
+                        expression: SSAMulExpression(
+                            lhs: SSARegExpression(name: op0.registerName.ssa),
+                            rhs: SSARegExpression(name: op1.registerName.ssa)
+                        )
                     )
-                )
-            ]
-
+                ]
+            }
+            else if op0.operandType == .reg && op1.operandType == nil {
+                return [
+                    SSAVariableAssignmentStatement(
+                        name: regs.ax.ssa,
+                        expression: SSAMulExpression(
+                            lhs: SSARegExpression(name: op0.registerName.ssa),
+                            rhs: SSARegExpression(name: regs.ax.ssa)
+                        )
+                    )
+                ]
+            }
+            else {
+                fatalError()
+            }
+            
         case UD_Ishr:
             assert(op0.operandType == .reg)
             assert(op1.operandType == .const)

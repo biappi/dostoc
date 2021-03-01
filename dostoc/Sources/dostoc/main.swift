@@ -31,16 +31,16 @@ let anals = XrefAnalisys(at: Examples.twoLoops, using: udis)
 let cfg = CFGGraph(from: anals)
 cfg.dump()
 
-let doms = dominators(graph: cfg)
-print(doms)
-
-let f = dominanceFrontier(graph: cfg, doms: doms)
-print(f)
+//let doms = dominators(graph: cfg)
+//print(doms)
+//
+//let f = dominanceFrontier(graph: cfg, doms: doms)
+//print(f)
 
 var c = Converter(cfg: cfg)
 c.convert()
 
-struct ExampleGraph : Graph {
+struct ExampleGraph1 : Graph {
     var start = 1
     var nodes = [1, 2, 3, 4, 5, 6]
     
@@ -67,5 +67,32 @@ struct ExampleGraph : Graph {
     }
 }
 
-let DOM = dominators(graph: ExampleGraph())
-print(DOM)
+struct ExampleGraph : Graph {
+    var start = 6
+    var nodes = [1, 2, 3, 4, 5, 6]
+    
+    func predecessors(of node: Int) -> [Int] {
+        return [
+            1: [2, 5],
+            2: [1, 3, 4],
+            3: [2, 4],
+            4: [6],
+            5: [6],
+            6: []
+        ][node]!
+    }
+    
+    func successors(of node: Int) -> [Int] {
+        return [
+            1: [2],
+            2: [1, 3],
+            3: [2],
+            4: [2, 3],
+            5: [1],
+            6: [5, 4]
+        ][node]!
+    }
+}
+
+//let DOM = dominators(graph: ExampleGraph())
+//print(DOM)

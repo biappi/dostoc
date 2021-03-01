@@ -10,7 +10,7 @@ import udis86
 
 extension ud_operand {
     
-    var operandType: OperandType {
+    var operandType: OperandType? {
         switch type {
         case UD_OP_REG:   return .reg
         case UD_OP_MEM:   return .mem
@@ -18,6 +18,7 @@ extension ud_operand {
         case UD_OP_IMM:   return .imm
         case UD_OP_JIMM:  return .jimm
         case UD_OP_CONST: return .const
+        case UD_NONE:     return nil
         default: fatalError("\(type.rawValue)")
         }
     }
