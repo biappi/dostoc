@@ -10,7 +10,7 @@ import udis86
 
 struct SSAName: Hashable {
     let name:  String
-    let index: Int?
+    var index: Int?
     
     init(name: String) {
         self.name = name
@@ -33,36 +33,39 @@ struct SSAName: Hashable {
 protocol SSAExpression {
     var dump: String { get }
     var variables: Set<SSAName> { get }
+    mutating func rename(name: String, index: Int)
 }
 
 struct SSARegExpression: SSAExpression {
-    let name: SSAName
-    
+    var name: SSAName
     var dump: String { name.dump }
+    var variables: Set<SSAName> { Set([name]) }
     
-    var variables: Set<SSAName> {
-        Set([name])
+    mutating func rename(name: String, index: Int) {
+        if self.name.name == name {
+            self.name.index = index
+        }
     }
 }
 
 struct SSAMemoryExpression: SSAExpression {
-    let name: SSAName
-    
+    var name: SSAName
     var dump: String { "memory(\(name.dump))"}
+    var variables: Set<SSAName> { Set([name]) }
     
-    var variables: Set<SSAName> {
-        Set([name])
+    mutating func rename(name: String, index: Int) {
+        if self.name.name == name {
+            self.name.index = index
+        }
     }
 }
 
 struct SSAConstExpression: SSAExpression {
     let value: Int
-    
     var dump: String { String(format: "%x", value) }
+    var variables: Set<SSAName> { Set() }
     
-    var variables: Set<SSAName> {
-        Set()
-    }
+    mutating func rename(name: String, index: Int) { }
 }
 
 struct SSABinaryOpExpression: SSAExpression {
@@ -74,13 +77,20 @@ struct SSABinaryOpExpression: SSAExpression {
     }
     
     let op:  Operation
-    let lhs: SSAExpression
-    let rhs: SSAExpression
+    var lhs: SSAExpression
+    var rhs: SSAExpression
     
-    var dump: String { "\(lhs.dump) \(op.rawValue) \(rhs.dump)" }
+    var dump: String {
+        "\(lhs.dump) \(op.rawValue) \(rhs.dump)"
+    }
     
     var variables: Set<SSAName> {
         return lhs.variables.union(rhs.variables)
+    }
+    
+    mutating func rename(name: String, index: Int) {
+        lhs.rename(name: name, index: index)
+        rhs.rename(name: name, index: index)
     }
 }
 
@@ -88,68 +98,114 @@ struct SSABinaryOpExpression: SSAExpression {
 
 protocol SSAStatement {
     var dump: String { get }
-    var variables: Set<SSAName> { get }
+    var allVariables: Set<SSAName> { get }
+    
+    var lhsVariables: Set<SSAName> { get }
+    var rhsVariables: Set<SSAName> { get }
+    
+    mutating func renameRHS(name: String, index: Int)
+    mutating func renameLHS(name: String, index: Int)
+}
+
+extension SSAStatement {
+    var allVariables: Set<SSAName> { Set() }
+    var lhsVariables: Set<SSAName> { Set() }
+    var rhsVariables: Set<SSAName> { Set() }
+    
+    func renameRHS(name: String, index: Int) { }
+    func renameLHS(name: String, index: Int) { }
 }
 
 struct SSAPhiAssignmentStatement: SSAStatement {
     let name: String
-    let phis: [(Int, Int)]
+    var phis: [Int]
+    
+    var index = 0
     
     var dump: String {
         let d = phis
-            .map { "\(name)_\($0.1) : \($0.0)"}
+            .map { "\(name)_\($0)"}
             .joined(separator: ", ")
         
-        return "phi(\(d))"
-    }
-    
-    var variables: Set<SSAName> {
-        return Set()
+        return "\(name)_\(index) = phi(\(d))"
     }
 }
 
-
 struct SSAVariableAssignmentStatement: SSAStatement {
-    let name: SSAName
-    let expression: SSAExpression
+    var name: SSAName
+    var expression: SSAExpression
     
     var dump: String { "\(name.dump) = \(expression.dump)" }
     
-    var variables: Set<SSAName> {
+    var allVariables: Set<SSAName> {
         return Set([name]).union(expression.variables)
+    }
+    
+    var rhsVariables: Set<SSAName> {
+        expression.variables
+    }
+    
+    var lhsVariables: Set<SSAName> {
+        Set([name])
+    }
+    
+    mutating func renameRHS(name: String, index: Int) {
+        expression.rename(name: name, index: index)
+    }
+    
+    mutating func renameLHS(name: String, index: Int) {
+        if self.name.name == name {
+            self.name.index = index
+        }
     }
 }
 
 struct SSAMemoryAssignmentStatement: SSAStatement {
-    let name: SSAName
-    let expression: SSAExpression
+    var name: SSAName
+    var expression: SSAExpression
     
     var dump: String { "memory(\(name.dump)) = \(expression.dump)" }
 
-    var variables: Set<SSAName> {
+    var allVariables: Set<SSAName> {
         return Set([name]).union(expression.variables)
+    }
+    
+    var lhsVariables: Set<SSAName> {
+        Set([name])
+    }
+    
+    var rhsVariables: Set<SSAName> {
+        expression.variables
+    }
+    
+    mutating func renameLHS(name: String, index: Int) {
+        if self.name.name == name {
+            self.name.index = index
+        }
+    }
+
+    mutating func renameRHS(name: String, index: Int) {
+        expression.rename(name: name, index: index)
     }
 }
 
 struct SSASegmentedMemoryAssignmentStatement: SSAStatement {
     let address: String
-    let expression: SSAExpression
+    var expression: SSAExpression
     
     var dump: String { "memory(\(address)) = \(expression.dump)" }
     
-    var variables: Set<SSAName> {
-        return expression.variables
+    var allVariables: Set<SSAName> { expression.variables }
+    var rhsVariables: Set<SSAName> { expression.variables }
+    
+    mutating func renameRHS(name: String, index: Int) {
+        expression.rename(name: name, index: index)
     }
 }
 
 struct SSAIntStatement: SSAStatement {
     let interrupt: Int
-    
     var dump: String { String(format: "int(%x)", interrupt) }
-    
-    var variables: Set<SSAName> {
-        return Set()
-    }
 }
 
 struct SSALabel {
@@ -161,29 +217,15 @@ struct SSAJmpStatement: SSAStatement {
     let target: SSALabel
     
     var dump: String { "jmp(\(type)) \(target.target)" }
-    
-    var variables: Set<SSAName> {
-        return Set()
-    }
-
 }
 
 struct SSACallStatement: SSAStatement {
     let target: SSALabel
-    
     var dump: String { "call(\(target.target))" }
-    
-    var variables: Set<SSAName> {
-        return Set()
-    }
 }
 
 struct SSAEndStatement: SSAStatement {
     var dump: String { "end" }
-    
-    var variables: Set<SSAName> {
-        return Set()
-    }
 }
 
 /* - */

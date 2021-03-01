@@ -8,65 +8,6 @@
 import Foundation
 import udis86
 
-struct VariableName {
-    let base: String
-    let block: Int
-    let index: Int
-    
-    var string: String { "\(base)_\(index)" }
-    
-    var ssa: SSAName {
-        SSAName(name: "\(base)", index: index)
-    }
-
-}
-
-struct MachineRegisters {
-    let number: Int
-    
-    var unnbound = [VariableName]()
-    var regIndexes = [String : Int]()
-
-    var defined = [String: Int]()
-    
-    mutating func last(_ name: String) -> VariableName {
-        if let index = regIndexes[name] {
-            return VariableName(base: name, block: number, index: index)
-        }
-        else {
-            let variable = VariableName(base: name, block: number, index: 0)
-            unnbound.append(variable)
-            regIndexes[name] = 0
-            return variable
-        }
-    }
-    
-    mutating func new(_ name: String) -> VariableName {
-        let index = regIndexes[name, default: -1]
-        regIndexes[name] = index + 1
-        let v =  VariableName(base: name, block: number, index: index + 1)
-        defined[name] = v.index
-        return v
-    }
-
-    mutating func last(_ designation: RegisterName.Designations) -> SSAName {
-        return last("\(designation)").ssa
-    }
-
-    mutating func new(_ designation: RegisterName.Designations) -> SSAName {
-        return new("\(designation)").ssa
-    }
-
-    mutating func lastTemp() -> SSAName {
-        return last("temp").ssa
-    }
-
-    mutating func new() -> SSAName {
-        return new("temp").ssa
-    }
-    
-}
-
 extension RegisterName {
     var ssa: SSAName { designation.ssa }
 }
@@ -75,18 +16,47 @@ extension RegisterName.Designations {
     var ssa: SSAName { SSAName(name: "\(self)") }
 }
 
-typealias SSAStatementBlock = [(Instruction?, [SSAStatement])]
+struct SSABlock {
+    var phiStatements: [SSAPhiAssignmentStatement]
+    var statements: [(Instruction?, [SSAStatement])]
+    
+    init(cfgBlock: CFGBlock) {
+        phiStatements = []
+        statements = []
+        
+        statements = cfgBlock.instructions.map { insn in
+            (insn, convert(insn: insn))
+        }
+    }
+    
+    var allVariables: Set<SSAName> {
+        Set(
+            statements
+                .flatMap { $0.1 }
+                .flatMap { $0.allVariables }
+        )
+    }
+    
+    var variablesModified: Set<SSAName> {
+        Set(
+            statements
+                .flatMap { $0.1 }
+                .compactMap { $0 as? SSAVariableAssignmentStatement }
+                .compactMap { $0.name }
+        )
+    }
+    
+    func dump() {
+        for stmt in phiStatements {
+            let dump = stmt.dump
+            let width = 80
+            let spc2 = String(repeating: " ", count: width - dump.count)
+            let vars = stmt.allVariables.map { $0.dump }.joined(separator: ", ")
 
-struct Converter {
-    
-    let cfg: CFGGraph
-    
-    var ssaBlocks = [UInt64 : SSAStatementBlock]()
-    var doms = [UInt64 : UInt64]()
-    var frontier = [UInt64 : [UInt64]]()
-    
-    fileprivate func printBlockStatements(_ blockStatements: [(Instruction?, [SSAStatement])]) {
-        for (insn, ssa) in blockStatements {
+            print("\t\(dump)\(spc2)\(vars)")
+        }
+        
+        for (insn, ssa) in statements {
             for (i, stmt) in ssa.enumerated() {
                 let dump = stmt.dump
                 
@@ -97,35 +67,34 @@ struct Converter {
                     let asm = insn?.asm ?? ""
                     let spc2 = String(repeating: " ", count: width - asm.count)
                     
-                    let vars = stmt.variables.map { $0.dump }.joined(separator: ", ")
+                    let vars = stmt.allVariables.map { $0.dump }.joined(separator: ", ")
                     print("\t\(dump)\(spc)\(asm)\(spc2)\(vars)")
                 }
                 else {
                     let width = 80
                     let spc2 = String(repeating: " ", count: width - dump.count)
-                    let vars = stmt.variables.map { $0.dump }.joined(separator: ", ")
+                    let vars = stmt.allVariables.map { $0.dump }.joined(separator: ", ")
 
                     print("\t\(dump)\(spc2)\(vars)")
                 }
             }
         }
     }
+}
+
+struct Converter {
+    
+    let cfg: CFGGraph
+    
+    var ssaBlocks = [UInt64 : SSABlock]()
+    var doms = [UInt64 : UInt64]()
+    var frontier = [UInt64 : [UInt64]]()
     
     func variablesModifiedForNodes() -> [CFGGraph.NodeId : Set<SSAName>] {
-        let variablesModifiedIn = { (ssaBlock: SSAStatementBlock) -> Set<SSAName> in
-            Set(
-                ssaBlock
-                    .flatMap { $0.1 }
-                    .compactMap { $0 as? SSAVariableAssignmentStatement }
-                    .compactMap { $0.name }
-            )
-        }
-
-        
         var variablesModifiedInNodes = [CFGGraph.NodeId : Set<SSAName>]()
         
         for (nodeId, ssaBlock) in ssaBlocks {
-            variablesModifiedInNodes[nodeId] = variablesModifiedIn(ssaBlock)
+            variablesModifiedInNodes[nodeId] = ssaBlock.variablesModified
         }
         
         return variablesModifiedInNodes
@@ -134,9 +103,8 @@ struct Converter {
     func allVariables() -> Set<SSAName> {
         return Set(
             ssaBlocks
-                .flatMap { $0.value }
-                .flatMap { $0.1 }
-                .flatMap { $0.variables }
+                .compactMap { $0.value }
+                .flatMap { $0.allVariables }
         )
     }
     
@@ -144,14 +112,12 @@ struct Converter {
         let phi = SSAPhiAssignmentStatement(
             name: variable.name,
             phis: Array(
-                repeating: (0, 0),
+                repeating: 0,
                 count: cfg.predecessors(of: node).count
             )
         )
         
-        let oldBlock = ssaBlocks[node]!
-        let newBlock = [(nil, [phi])] + oldBlock
-        ssaBlocks[node] = newBlock
+        ssaBlocks[node]!.phiStatements.append(phi)
     }
     
     mutating func placePhis() {
@@ -189,29 +155,103 @@ struct Converter {
         }
     }
     
-    mutating func convert() {
+    mutating func rename() {
+        var stacks   = [String : [Int]]()
+        var counters = [String :  Int ]()
         
+        let genName = { (variable: String) in
+            let i = counters[variable, default: 0]
+            stacks[variable, default: []].append(i)
+            counters[variable] = i + 1
+        }
+
+        let getIndex = { (variable: String) -> Int in
+            if stacks[variable] == nil {
+                genName(variable)
+            }
+            
+            return stacks[variable]!.last!
+        }
+        
+        var visited = Set<UInt64>()
+        func rename(_ block: UInt64) {
+            if visited.contains(block) {
+                return
+            }
+            
+            visited.insert(block)
+            
+            for i in 0 ..< ssaBlocks[block]!.phiStatements.count {
+                let name = ssaBlocks[block]!.phiStatements[i].name
+                genName(name)
+                ssaBlocks[block]!.phiStatements[i].index = getIndex(name)
+            }
+            
+            for i in 0 ..< ssaBlocks[block]!.statements.count {
+                for k in 0 ..< ssaBlocks[block]!.statements[i].1.count {
+                    let rhsVariables = ssaBlocks[block]!.statements[i].1[k].rhsVariables
+                    
+                    for variable in rhsVariables {
+                        ssaBlocks[block]!.statements[i].1[k].renameRHS(
+                            name: variable.name,
+                            index: getIndex(variable.name)
+                        )
+                    }
+                    
+                    let lhsVariables = ssaBlocks[block]!.statements[i].1[k].lhsVariables
+                    
+                    for variable in lhsVariables {
+                        genName(variable.name)
+                        ssaBlocks[block]!.statements[i].1[k].renameLHS(
+                            name: variable.name,
+                            index: getIndex(variable.name)
+                        )
+                    }
+                }
+            }
+            
+            for successor in cfg.successors(of: block) {
+                for (p, phi) in ssaBlocks[successor]!.phiStatements.enumerated() {
+                    let s = cfg.predecessors(of: successor).firstIndex(of: block)!
+                    ssaBlocks[successor]!.phiStatements[p].phis[s] = getIndex(phi.name)
+                }
+            }
+            
+            var childs = [UInt64]()
+            for (node, parent) in doms {
+                if parent == block {
+                    childs.append(node)
+                }
+            }
+            
+            for child in childs {
+                rename(child)
+            }
+            
+            for phi in ssaBlocks[block]!.phiStatements {
+                stacks[phi.name]!.removeLast()
+            }
+            
+            for stmt in ssaBlocks[block]!.statements.flatMap({ $0.1 }) {
+                for variable in stmt.lhsVariables {
+                    stacks[variable.name]!.removeLast()
+                }
+            }
+        }
+        
+        rename(cfg.start)
+    }
+    
+    mutating func convert() {
         doms = dominators(graph: cfg)
         frontier = dominanceFrontier(graph: cfg, doms: doms)
         
-        //         at block  varname   from block, idx
-//        var phis = [UInt64 : [String : [UInt64 : Int]]]()
-        
-        cfg.visit {
-            block in
-                                                
-            ssaBlocks[block.start] = block.instructions.map { insn in
-                (insn, convert(insn: insn))
-            }
-            
-//            for frontierBlock in frontier[block.start] ?? [] {
-//                for (variableName, variableIndex) in registers.defined {
-//                    phis[frontierBlock, default: [:]][variableName, default: [:]][block.start] = variableIndex
-//                }
-//            }
+        cfg.visit { block in
+            ssaBlocks[block.start] = SSABlock(cfgBlock: block)
         }
         
         placePhis()
+        rename()
         
         var i = 0
         cfg.visit {
@@ -223,22 +263,16 @@ struct Converter {
             print("Block \(i) [\(cfgblock.start.hexString)] - (\(backlinks)) --> (\(fwdlinks))")
             print()
             
-//            print(phis[cfgblock.start])
-            
+            ssaBlocks[cfgblock.start]?.dump()
             print()
-            printBlockStatements(ssaBlocks[cfgblock.start]!)
             print()
-            
-//            print("    Variables:")
-//            print("       ", varsDefined[cfgblock.start]!)
-//            print("    Need to be in frontier")
-//            print("       ", frontier[cfgblock.start] ?? [])
-//            print()
 
             i += 1
         }
     }
+}
 
+extension SSABlock {
     mutating func convert(insn: Instruction) -> [SSAStatement] {
         let op0 = insn.operands.0
         let op1 = insn.operands.1
