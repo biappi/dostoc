@@ -14,7 +14,10 @@ struct VariableName {
     let index: Int
     
     var string: String { "\(base)_\(index)" }
-    var ssa: SSAName { SSAName(name: "\(base)", index: index) }
+    
+    var ssa: SSAName {
+        SSAName(name: "\(base)", index: index)
+    }
 
 }
 
@@ -64,12 +67,24 @@ struct MachineRegisters {
     
 }
 
+extension RegisterName {
+    var ssa: SSAName { designation.ssa }
+}
+
+extension RegisterName.Designations {
+    var ssa: SSAName { SSAName(name: "\(self)") }
+}
+
+typealias SSAStatementBlock = [(Instruction?, [SSAStatement])]
+
 struct Converter {
     
     let cfg: CFGGraph
     
-    var statements = [SSAStatement]()
-
+    var ssaBlocks = [UInt64 : SSAStatementBlock]()
+    var doms = [UInt64 : UInt64]()
+    var frontier = [UInt64 : [UInt64]]()
+    
     fileprivate func printBlockStatements(_ blockStatements: [(Instruction?, [SSAStatement])]) {
         for (insn, ssa) in blockStatements {
             for (i, stmt) in ssa.enumerated() {
@@ -79,10 +94,96 @@ struct Converter {
                     let width = 40
                     let spc = String(repeating: " ", count: width - dump.count)
                     
-                    print("\t\(dump)\(spc)\(insn?.asm ?? "")")
+                    let asm = insn?.asm ?? ""
+                    let spc2 = String(repeating: " ", count: width - asm.count)
+                    
+                    let vars = stmt.variables.map { $0.dump }.joined(separator: ", ")
+                    print("\t\(dump)\(spc)\(asm)\(spc2)\(vars)")
                 }
                 else {
-                    print("\t\(dump)")
+                    let width = 80
+                    let spc2 = String(repeating: " ", count: width - dump.count)
+                    let vars = stmt.variables.map { $0.dump }.joined(separator: ", ")
+
+                    print("\t\(dump)\(spc2)\(vars)")
+                }
+            }
+        }
+    }
+    
+    func variablesModifiedForNodes() -> [CFGGraph.NodeId : Set<SSAName>] {
+        let variablesModifiedIn = { (ssaBlock: SSAStatementBlock) -> Set<SSAName> in
+            Set(
+                ssaBlock
+                    .flatMap { $0.1 }
+                    .compactMap { $0 as? SSAVariableAssignmentStatement }
+                    .compactMap { $0.name }
+            )
+        }
+
+        
+        var variablesModifiedInNodes = [CFGGraph.NodeId : Set<SSAName>]()
+        
+        for (nodeId, ssaBlock) in ssaBlocks {
+            variablesModifiedInNodes[nodeId] = variablesModifiedIn(ssaBlock)
+        }
+        
+        return variablesModifiedInNodes
+    }
+    
+    func allVariables() -> Set<SSAName> {
+        return Set(
+            ssaBlocks
+                .flatMap { $0.value }
+                .flatMap { $0.1 }
+                .flatMap { $0.variables }
+        )
+    }
+    
+    mutating func insertPhiNode(for variable: SSAName, at node: UInt64) {
+        let phi = SSAPhiAssignmentStatement(
+            name: variable.name,
+            phis: Array(
+                repeating: (0, 0),
+                count: cfg.predecessors(of: node).count
+            )
+        )
+        
+        let oldBlock = ssaBlocks[node]!
+        let newBlock = [(nil, [phi])] + oldBlock
+        ssaBlocks[node] = newBlock
+    }
+    
+    mutating func placePhis() {
+        let variablesModifiedInNodes = variablesModifiedForNodes()
+        let allVariables = allVariables()
+        
+        for variable in allVariables {
+            var placed   = Set<CFGGraph.NodeId>()
+            var visited  = Set<CFGGraph.NodeId>()
+            var worklist = Set<CFGGraph.NodeId>()
+            
+            for (nodeId, _) in ssaBlocks {
+                if variablesModifiedInNodes[nodeId]!.contains(variable) {
+                    visited.insert(nodeId)
+                    worklist.insert(nodeId)
+                }
+            }
+            
+            while !worklist.isEmpty {
+                let x = worklist.removeFirst()
+                
+                for y in frontier[x] ?? [] {
+                    if !placed.contains(y) {
+                        insertPhiNode(for: variable, at: y)
+                        
+                        placed.insert(y)
+                        
+                        if !visited.contains(y) {
+                            visited.insert(y)
+                            worklist.insert(y)
+                        }
+                    }
                 }
             }
         }
@@ -90,44 +191,36 @@ struct Converter {
     
     mutating func convert() {
         
-        typealias SSAStatementBlock = [(Instruction?, [SSAStatement])]
-        
-        var registers = MachineRegisters(number: 0)
-        
-        var ssaBlocks = [UInt64 : SSAStatementBlock]()
-        var varsDefined = [UInt64 : [String : Int]]()
-        
-        let doms = dominators(graph: cfg)
-        let frontier = dominanceFrontier(graph: cfg, doms: doms)
+        doms = dominators(graph: cfg)
+        frontier = dominanceFrontier(graph: cfg, doms: doms)
         
         //         at block  varname   from block, idx
-        var phis = [UInt64 : [String : [UInt64 : Int]]]()
+//        var phis = [UInt64 : [String : [UInt64 : Int]]]()
         
         cfg.visit {
             block in
-                                    
-            registers.defined = [:]
-            
+                                                
             ssaBlocks[block.start] = block.instructions.map { insn in
-                (insn, convert(insn: insn, registers: &registers))
+                (insn, convert(insn: insn))
             }
             
-            varsDefined[block.start] = registers.defined
-            
-            for frontierBlock in frontier[block.start] ?? [] {
-                for (variableName, variableIndex) in registers.defined {
-                    phis[frontierBlock, default: [:]][variableName, default: [:]][block.start] = variableIndex
-                }
-            }
+//            for frontierBlock in frontier[block.start] ?? [] {
+//                for (variableName, variableIndex) in registers.defined {
+//                    phis[frontierBlock, default: [:]][variableName, default: [:]][block.start] = variableIndex
+//                }
+//            }
         }
+        
+        placePhis()
         
         var i = 0
         cfg.visit {
             cfgblock in
             
             let backlinks = cfgblock.backlinks.map { $0.hexString }.joined(separator: ", ")
+            let fwdlinks = cfgblock.end.map { $0.hexString }.joined(separator: ", ")
 
-            print("Block \(i) - (\(backlinks))")
+            print("Block \(i) [\(cfgblock.start.hexString)] - (\(backlinks)) --> (\(fwdlinks))")
             print()
             
 //            print(phis[cfgblock.start])
@@ -146,10 +239,11 @@ struct Converter {
         }
     }
 
-    mutating func convert(insn: Instruction, registers: inout MachineRegisters) -> [SSAStatement] {
+    mutating func convert(insn: Instruction) -> [SSAStatement] {
         let op0 = insn.operands.0
         let op1 = insn.operands.1
 
+        typealias regs = RegisterName.Designations
 //        print(insn.asm)
         
         switch insn.mnemonic {
@@ -158,66 +252,67 @@ struct Converter {
             assert(op0.operandType == .reg)
             
             return [
-                SSAAssignmentStatement(
-                    assign: SSARegExpression(name: registers.last(op0.registerName.designation)),
-                    to:     SSAMemoryVariable(name: registers.last(.sp))
+                SSAMemoryAssignmentStatement(
+                    name: regs.sp.ssa,
+                    expression: SSARegExpression(name: op0.registerName.ssa)
                 ),
-                SSAAssignmentStatement(
-                    assign: SSADiffExpression(
-                        lhs: SSARegExpression(name: registers.last(.sp)),
+                SSAVariableAssignmentStatement(
+                    name: regs.sp.ssa,
+                    expression: SSADiffExpression(
+                        lhs: SSARegExpression(name: regs.sp.ssa),
                         rhs: SSAConstExpression(value: 2)
-                    ),
-                    to:     SSARegVariable(name: registers.new(.sp))
+                    )
                 )
             ]
             
         case UD_Ipop:
             assert(op0.operandType == .reg)
             return [
-                SSAAssignmentStatement(
-                    assign: SSASumExpression(
-                        lhs: SSARegExpression(name: registers.last(.sp)),
+                SSAVariableAssignmentStatement(
+                    name: regs.sp.ssa,
+                    expression: SSASumExpression(
+                        lhs: SSARegExpression(name: regs.sp.ssa),
                         rhs: SSAConstExpression(value: 2)
-                    ),
-                    to: SSARegVariable(name: registers.new(.sp))
+                    )
                 ),
-                SSAAssignmentStatement(
-                    assign: SSAMemoryExpression(name: registers.last(.sp)),
-                    to: SSARegVariable(name: registers.new(op0.registerName.designation))
+                SSAVariableAssignmentStatement(
+                    name: op0.registerName.ssa,
+                    expression: SSAMemoryExpression(name: regs.sp.ssa)
                 )
             ]
             
         case UD_Imov:
             if op0.operandType == .reg && op1.operandType == .reg {
                 return [
-                    SSAAssignmentStatement(
-                        assign: SSARegExpression(name: registers.last(op1.registerName.designation)),
-                        to: SSARegVariable(name: registers.new(op0.registerName.designation))
+                    SSAVariableAssignmentStatement(
+                        name: op0.registerName.ssa,
+                        expression: SSARegExpression(name: op1.registerName.ssa)
                     )
                 ]
             }
             else if op0.operandType == .reg && op1.operandType == .mem {
                 assert(insn.prefixSegment == nil)
                 let op1mem = MemoryOperand(op1)
+                let temp = SSAName(name: "TEMP") // XXX
                 return [
-                    SSAAssignmentStatement(
-                        assign: SSASumExpression(
-                            lhs: SSARegExpression(name: registers.last(op1mem.base.designation)),
+                    SSAVariableAssignmentStatement(
+                        name: temp,
+                        expression: SSASumExpression(
+                            lhs: SSARegExpression(name: op1mem.base.ssa),
                             rhs: SSAConstExpression(value: Int(op1mem.offset))
-                        ),
-                        to: SSARegVariable(name: registers.new())
+                        )
                     ),
-                    SSAAssignmentStatement(
-                        assign: SSAMemoryExpression(name: registers.lastTemp()),
-                        to: SSARegVariable(name: registers.new(op0.registerName.designation))
+                    SSAVariableAssignmentStatement(
+                        name: op0.registerName.ssa,
+                        expression: SSAMemoryExpression(name: temp)
                     )
                 ]
             }
             else if op0.operandType == .reg && op1.operandType == .imm {
                 return [
-                    SSAAssignmentStatement(
-                        assign: SSAConstExpression(value: Int(op1.uint64value)),
-                        to: SSARegVariable(name: registers.new(op0.registerName.designation))
+                    SSAVariableAssignmentStatement(
+                        name: op0.registerName.ssa,
+                        expression: SSAConstExpression(value: Int(op1.uint64value))
                     )
                 ]
             }
@@ -226,9 +321,9 @@ struct Converter {
                 let name = "\(seg)\(op0.registerName.designation)"
                 
                 return [
-                    SSAAssignmentStatement(
-                        assign: SSARegExpression(name: registers.last(op1.registerName.designation)),
-                        to: SSASegmentedMemoryVariable(address: name)
+                    SSASegmentedMemoryAssignmentStatement(
+                        address:  name,
+                        expression: SSARegExpression(name: op1.registerName.ssa)
                     )
                 ]
             }
@@ -271,12 +366,12 @@ struct Converter {
             assert(op1.operandType == .imm)
             
             return [
-                SSAAssignmentStatement(
-                    assign: SSASumExpression(
-                        lhs: SSARegExpression(name: registers.last(op0.registerName.designation)),
+                SSAVariableAssignmentStatement(
+                    name: op0.registerName.ssa,
+                    expression: SSASumExpression(
+                        lhs: SSARegExpression(name: op0.registerName.ssa),
                         rhs: SSAConstExpression(value: Int(op1.uint64value))
-                    ),
-                    to: SSARegVariable(name: registers.new(op0.registerName.designation))
+                    )
                 )
             ]
 
@@ -285,12 +380,12 @@ struct Converter {
             assert(op1.operandType == .reg)
             
             return [
-                SSAAssignmentStatement(
-                    assign: SSADiffExpression(
-                        lhs: SSARegExpression(name: registers.last(op0.registerName.designation)),
-                        rhs: SSARegExpression(name: registers.last(op1.registerName.designation))
-                    ),
-                    to: SSARegVariable(name: registers.new(op0.registerName.designation))
+                SSAVariableAssignmentStatement(
+                    name: op0.registerName.ssa,
+                    expression: SSADiffExpression(
+                        lhs: SSARegExpression(name: op0.registerName.ssa),
+                        rhs: SSARegExpression(name: op1.registerName.ssa)
+                    )
                 )
             ]
             
@@ -298,12 +393,12 @@ struct Converter {
             assert(op0.operandType == .reg)
             
             return [
-                SSAAssignmentStatement(
-                    assign: SSAMulExpression(
-                        lhs: SSARegExpression(name: registers.last(op0.registerName.designation)),
-                        rhs: SSARegExpression(name: registers.last(op1.registerName.designation))
-                    ),
-                    to: SSARegVariable(name: registers.new(op0.registerName.designation))
+                SSAVariableAssignmentStatement(
+                    name: op0.registerName.ssa,
+                    expression: SSAMulExpression(
+                        lhs: SSARegExpression(name: op0.registerName.ssa),
+                        rhs: SSARegExpression(name: op1.registerName.ssa)
+                    )
                 )
             ]
 
@@ -312,12 +407,12 @@ struct Converter {
             assert(op1.operandType == .const)
             
             return [
-                SSAAssignmentStatement(
-                    assign: SSAShiftRight(
-                        lhs: SSARegExpression(name: registers.last(op0.registerName.designation)),
+                SSAVariableAssignmentStatement(
+                    name: op0.registerName.ssa,
+                    expression: SSAShiftRight(
+                        lhs: SSARegExpression(name: op0.registerName.ssa),
                         rhs: SSAConstExpression(value: Int(op1.uint64value))
-                    ),
-                    to: SSARegVariable(name: registers.new(op0.registerName.designation))
+                    )
                 )
             ]
 
@@ -325,12 +420,12 @@ struct Converter {
             assert(op0.operandType == .reg)
             
             return [
-                SSAAssignmentStatement(
-                    assign: SSASumExpression(
-                        lhs: SSARegExpression(name: registers.last(op0.registerName.designation)),
+                SSAVariableAssignmentStatement(
+                    name: op0.registerName.ssa,
+                    expression: SSASumExpression(
+                        lhs: SSARegExpression(name: op0.registerName.ssa),
                         rhs: SSAConstExpression(value: 1)
-                    ),
-                    to: SSARegVariable(name: registers.new(op0.registerName.designation))
+                    )
                 )
             ]
 
@@ -338,12 +433,12 @@ struct Converter {
             assert(op0.operandType == .reg)
             
             return [
-                SSAAssignmentStatement(
-                    assign: SSADiffExpression(
-                        lhs: SSARegExpression(name: registers.last(op0.registerName.designation)),
+                SSAVariableAssignmentStatement(
+                    name: op0.registerName.ssa,
+                    expression: SSADiffExpression(
+                        lhs: SSARegExpression(name: op0.registerName.ssa),
                         rhs: SSAConstExpression(value: 1)
-                    ),
-                    to: SSARegVariable(name: registers.new(op0.registerName.designation))
+                    )
                 )
             ]
 

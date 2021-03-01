@@ -39,3 +39,33 @@ print(f)
 
 var c = Converter(cfg: cfg)
 c.convert()
+
+struct ExampleGraph : Graph {
+    var start = 1
+    var nodes = [1, 2, 3, 4, 5, 6]
+    
+    func predecessors(of node: Int) -> [Int] {
+        return [
+            1: [],
+            2: [1, 5],
+            3: [2],
+            4: [2],
+            5: [3, 4],
+            6: [2]
+        ][node]!
+    }
+    
+    func successors(of node: Int) -> [Int] {
+        return [
+            1: [2],
+            2: [3, 4, 6],
+            3: [5],
+            4: [5],
+            5: [2],
+            6: []
+        ][node]!
+    }
+}
+
+let DOM = dominators(graph: ExampleGraph())
+print(DOM)
