@@ -60,6 +60,14 @@ struct SSABlock {
         
         for (inNr, (insn, ssa)) in statements.enumerated() {
             for (i, stmt) in ssa.enumerated() {
+                if stmt as? SSAPrologueStatement != nil {
+                    continue
+                }
+                
+                if stmt as? SSAEpilogueStatement != nil {
+                    continue
+                }
+                
                 let dead = deleted.contains(.stmt(blockId: blockId, insn: inNr, stmt: i))
                 let dood = dead ? "MORTO " : "      "
                 let dump = stmt.dump
@@ -291,20 +299,20 @@ struct Converter {
             
             for i in 0 ..< ssaGraph.ssaBlocks[block]!.statements.count {
                 for k in 0 ..< ssaGraph.ssaBlocks[block]!.statements[i].1.count {
-                    let rhsVariables = ssaGraph.ssaBlocks[block]!.statements[i].1[k].rhsVariables
+                    let rhsVariables = ssaGraph.ssaBlocks[block]!.statements[i].1[k].variablesReferenced
                     
                     for variable in rhsVariables {
-                        ssaGraph.ssaBlocks[block]!.statements[i].1[k].renameRHS(
+                        ssaGraph.ssaBlocks[block]!.statements[i].1[k].renameReferencedVariables(
                             name: variable.name,
                             index: getIndex(variable.name)
                         )
                     }
                     
-                    let lhsVariables = ssaGraph.ssaBlocks[block]!.statements[i].1[k].lhsVariables
+                    let lhsVariables = ssaGraph.ssaBlocks[block]!.statements[i].1[k].variablesDefined
                     
                     for variable in lhsVariables {
                         genName(variable.name)
-                        ssaGraph.ssaBlocks[block]!.statements[i].1[k].renameLHS(
+                        ssaGraph.ssaBlocks[block]!.statements[i].1[k].renameDefinedVariables(
                             name: variable.name,
                             index: getIndex(variable.name)
                         )
@@ -335,7 +343,7 @@ struct Converter {
             }
             
             for stmt in ssaGraph.ssaBlocks[block]!.statements.flatMap({ $0.1 }) {
-                for variable in stmt.lhsVariables {
+                for variable in stmt.variablesDefined {
                     stacks[variable.name]!.removeLast()
                 }
             }
@@ -346,40 +354,27 @@ struct Converter {
         
     var deleted = Set<StatementIndex>()
 
-    var logDeadCodeElimination = false
-    
     mutating func deadCodeElimination() {
         var definitions = [StatementIndex : SSAName]()
         var statementsUsing = [SSAName : Set<StatementIndex>]()
         var statementsDefining = [SSAName : Set<StatementIndex>]()
-
-        if logDeadCodeElimination { print() }
-        if logDeadCodeElimination { print() }
         
         ssaGraph.forEachSSAStatementIndex { idx in
             let stmt = ssaGraph.statementFor(idx)
-            if logDeadCodeElimination { print(stmt.dump, "    ", idx) }
             
-            for v in stmt.lhsVariables {
+            for v in stmt.variablesDefined {
                 statementsDefining[v, default: Set()].insert(idx)
-                if logDeadCodeElimination { print("     defining  \(v.dump)") }
                 definitions[idx] = v
                 
                 if statementsUsing[v] == nil {
                     statementsUsing[v] = []
-                    if logDeadCodeElimination { print("     using \(v.dump) -> []") }
                 }
             }
 
-            for v in stmt.rhsVariables {
+            for v in stmt.variablesReferenced {
                 statementsUsing[v, default: Set()].insert(idx)
-                if logDeadCodeElimination { print("     using  \(v.dump)") }
             }
-            if logDeadCodeElimination { print() }
         }
-
-        if logDeadCodeElimination { print() }
-        if logDeadCodeElimination { print() }
         
         var worklist = Set(definitions.keys)
 
@@ -387,41 +382,29 @@ struct Converter {
             let stmtIdx = worklist.removeFirst()
             let stmt = ssaGraph.statementFor(stmtIdx)
             
-            if logDeadCodeElimination { print("\(stmtIdx) -- \(stmt)") }
-            
             if (stmt as? SSAJccStatement) != nil {
                 continue
             }
             
             if deleted.contains(stmtIdx) {
-                if logDeadCodeElimination {  print(" > already deleted \(stmtIdx)") }
                 continue
             }
             
             guard let variable = definitions[stmtIdx] else {
-                if logDeadCodeElimination { print(" > no var in defs") }
                 continue
             }
             
             if statementsUsing[variable, default: []].count != 0 {
-                if logDeadCodeElimination { print(" > count != 0 -- \(variable.dump) - \(statementsUsing[variable] ?? [])") }
                 continue
             }
             
-            if logDeadCodeElimination { print("    WANT TO ELIMINATE \(variable.dump)") }
-
-            deleted.formUnion(statementsDefining[variable] ?? [])
+            let definingVariable = statementsDefining[variable] ?? []
+            deleted.formUnion(definingVariable)
             
-            let rhs = stmt.rhsVariables
-            if logDeadCodeElimination { print("        >>", rhs.map { $0.dump }) }
-            
-            for variable in rhs {
-                if logDeadCodeElimination { print("            >>", statementsDefining[variable, default: []].map { "\(ssaGraph.statementFor($0).dump) - \($0)"}) }
-                worklist.formUnion(statementsDefining[variable, default: []])
-                
+            for variable in stmt.variablesReferenced {
+                worklist.formUnion(definingVariable)
                 statementsUsing[variable]?.remove(stmtIdx)
             }
-            
         }
     }
         
@@ -456,12 +439,12 @@ extension SSABlock {
             return [
                 SSAMemoryAssignmentStatement(
                     name: regs.sp.ssa,
-                    expression: SSARegExpression(name: op0.registerName.ssa)
+                    expression: SSAVariableExpression(name: op0.registerName.ssa)
                 ),
                 SSAVariableAssignmentStatement(
                     name: regs.sp.ssa,
                     expression: SSADiffExpression(
-                        lhs: SSARegExpression(name: regs.sp.ssa),
+                        lhs: SSAVariableExpression(name: regs.sp.ssa),
                         rhs: SSAConstExpression(value: 2)
                     )
                 )
@@ -473,7 +456,7 @@ extension SSABlock {
                 SSAVariableAssignmentStatement(
                     name: regs.sp.ssa,
                     expression: SSASumExpression(
-                        lhs: SSARegExpression(name: regs.sp.ssa),
+                        lhs: SSAVariableExpression(name: regs.sp.ssa),
                         rhs: SSAConstExpression(value: 2)
                     )
                 ),
@@ -488,7 +471,7 @@ extension SSABlock {
                 return [
                     SSAVariableAssignmentStatement(
                         name: op0.registerName.ssa,
-                        expression: SSARegExpression(name: op1.registerName.ssa)
+                        expression: SSAVariableExpression(name: op1.registerName.ssa)
                     )
                 ]
             }
@@ -502,7 +485,7 @@ extension SSABlock {
                     SSAVariableAssignmentStatement(
                         name: temp,
                         expression: SSASumExpression(
-                            lhs: SSARegExpression(name: op1mem.base!.ssa),
+                            lhs: SSAVariableExpression(name: op1mem.base!.ssa),
                             rhs: SSAConstExpression(value: Int(op1mem.offset))
                         )
                     ),
@@ -524,13 +507,13 @@ extension SSABlock {
                 let segment = insn
                     .prefixSegment
                     .flatMap { SSAName(name: "\($0)")}
-                    .flatMap { SSARegExpression(name: $0)}
+                    .flatMap { SSAVariableExpression(name: $0)}
                 
                 return [
                     SSASegmentedMemoryRegAssignmentStatement(
                         segment: segment,
-                        address: SSARegExpression(name: op0.registerName.ssa),
-                        expression: SSARegExpression(name: op1.registerName.ssa)
+                        address: SSAVariableExpression(name: op0.registerName.ssa),
+                        expression: SSAVariableExpression(name: op1.registerName.ssa)
                     )
                 ]
             }
@@ -587,7 +570,7 @@ extension SSABlock {
                     SSAVariableAssignmentStatement(
                         name: op0.registerName.ssa,
                         expression: SSASumExpression(
-                            lhs: SSARegExpression(name: op0.registerName.ssa),
+                            lhs: SSAVariableExpression(name: op0.registerName.ssa),
                             rhs: SSAConstExpression(value: Int(op1.uint64value))
                         )
                     )
@@ -597,7 +580,7 @@ extension SSABlock {
                 return [
                    SSAVariableAssignmentStatement(
                        name: op0.registerName.ssa,
-                       expression: SSARegExpression(name: op0.registerName.ssa)
+                       expression: SSAVariableExpression(name: op0.registerName.ssa)
                    )
                ]
             }
@@ -613,13 +596,13 @@ extension SSABlock {
                 SSAVariableAssignmentStatement(
                     name: op0.registerName.ssa,
                     expression: SSADiffExpression(
-                        lhs: SSARegExpression(name: op0.registerName.ssa),
-                        rhs: SSARegExpression(name: op1.registerName.ssa)
+                        lhs: SSAVariableExpression(name: op0.registerName.ssa),
+                        rhs: SSAVariableExpression(name: op1.registerName.ssa)
                     )
                 ),
                 SSAFlagsAssignmentStatement(
                     name: SSAName(name: "flags"),
-                    expression: SSARegExpression(name: op0.registerName.ssa)
+                    expression: SSAVariableExpression(name: op0.registerName.ssa)
 
                 )
 
@@ -631,8 +614,8 @@ extension SSABlock {
                     SSAVariableAssignmentStatement(
                         name: op0.registerName.ssa,
                         expression: SSAMulExpression(
-                            lhs: SSARegExpression(name: op0.registerName.ssa),
-                            rhs: SSARegExpression(name: op1.registerName.ssa)
+                            lhs: SSAVariableExpression(name: op0.registerName.ssa),
+                            rhs: SSAVariableExpression(name: op1.registerName.ssa)
                         )
                     )
                 ]
@@ -642,8 +625,8 @@ extension SSABlock {
                     SSAVariableAssignmentStatement(
                         name: regs.ax.ssa,
                         expression: SSAMulExpression(
-                            lhs: SSARegExpression(name: op0.registerName.ssa),
-                            rhs: SSARegExpression(name: regs.ax.ssa)
+                            lhs: SSAVariableExpression(name: op0.registerName.ssa),
+                            rhs: SSAVariableExpression(name: regs.ax.ssa)
                         )
                     )
                 ]
@@ -660,7 +643,7 @@ extension SSABlock {
                 SSAVariableAssignmentStatement(
                     name: op0.registerName.ssa,
                     expression: SSAShiftRight(
-                        lhs: SSARegExpression(name: op0.registerName.ssa),
+                        lhs: SSAVariableExpression(name: op0.registerName.ssa),
                         rhs: SSAConstExpression(value: Int(op1.uint64value))
                     )
                 )
@@ -676,7 +659,7 @@ extension SSABlock {
                     name: op0.registerName.ssa,
                     expression: SSABinaryOpExpression(
                         op: .shl,
-                        lhs: SSARegExpression(name: op0.registerName.ssa),
+                        lhs: SSAVariableExpression(name: op0.registerName.ssa),
                         rhs: SSAConstExpression(value: Int(op1.uint64value))
                     )
                 )
@@ -690,7 +673,7 @@ extension SSABlock {
                 SSAVariableAssignmentStatement(
                     name: op0.registerName.ssa,
                     expression: SSASumExpression(
-                        lhs: SSARegExpression(name: op0.registerName.ssa),
+                        lhs: SSAVariableExpression(name: op0.registerName.ssa),
                         rhs: SSAConstExpression(value: 1)
                     )
                 )
@@ -703,13 +686,13 @@ extension SSABlock {
                 SSAVariableAssignmentStatement(
                     name: op0.registerName.ssa,
                     expression: SSADiffExpression(
-                        lhs: SSARegExpression(name: op0.registerName.ssa),
+                        lhs: SSAVariableExpression(name: op0.registerName.ssa),
                         rhs: SSAConstExpression(value: 1)
                     )
                 ),
                 SSAFlagsAssignmentStatement(
                     name: SSAName(name: "flags"),
-                    expression: SSARegExpression(name: op0.registerName.ssa)
+                    expression: SSAVariableExpression(name: op0.registerName.ssa)
                 )
             ]
 
@@ -723,7 +706,7 @@ extension SSABlock {
                 SSAVariableAssignmentStatement(
                     name: regs.cx.ssa,
                     expression: SSADiffExpression(
-                        lhs: SSARegExpression(name: regs.cx.ssa),
+                        lhs: SSAVariableExpression(name: regs.cx.ssa),
                         rhs: SSAConstExpression(value: 1)
                     )
                 ),
@@ -734,7 +717,7 @@ extension SSABlock {
 
                 SSAVariableAssignmentStatement(
                     name: SSAName(name: "flags"),
-                    expression: SSARegExpression(name: regs.cx.ssa)
+                    expression: SSAVariableExpression(name: regs.cx.ssa)
                 ),
                 SSAJccStatement(type: "loop", target: label)
             ]
@@ -762,7 +745,6 @@ extension SSABlock {
             if op0.operandType == .mem && op1.operandType == .imm {
                 assert(insn.prefixSegment == nil)
                 
-                
                 assert(op0.offset == 16)
                 assert(op0.base == UD_NONE)
                 
@@ -777,7 +759,7 @@ extension SSABlock {
                     SSAFlagsAssignmentStatement(
                         name: SSAName(name: "flags"),
                         expression: SSADiffExpression(
-                            lhs: SSARegExpression(name: temp_mem),
+                            lhs: SSAVariableExpression(name: temp_mem),
                             rhs: SSAConstExpression(value: Int(op1.int64value))
                         )
                     )
@@ -798,41 +780,41 @@ extension SSABlock {
 
 func PrologueStatements() -> [SSAStatement] {
     return [
-        SSAPrologueStatement(register: SSARegExpression(name: regs.ax.ssa)),
-        SSAPrologueStatement(register: SSARegExpression(name: regs.bx.ssa)),
-        SSAPrologueStatement(register: SSARegExpression(name: regs.cx.ssa)),
-        SSAPrologueStatement(register: SSARegExpression(name: regs.dx.ssa)),
-        SSAPrologueStatement(register: SSARegExpression(name: regs.bp.ssa)),
-        SSAPrologueStatement(register: SSARegExpression(name: regs.sp.ssa)),
-        SSAPrologueStatement(register: SSARegExpression(name: regs.si.ssa)),
-        SSAPrologueStatement(register: SSARegExpression(name: regs.di.ssa)),
-        SSAPrologueStatement(register: SSARegExpression(name: regs.ip.ssa)),
-        SSAPrologueStatement(register: SSARegExpression(name: regs.es.ssa)),
-        SSAPrologueStatement(register: SSARegExpression(name: regs.cs.ssa)),
-        SSAPrologueStatement(register: SSARegExpression(name: regs.ss.ssa)),
-        SSAPrologueStatement(register: SSARegExpression(name: regs.ds.ssa)),
-        SSAPrologueStatement(register: SSARegExpression(name: regs.fs.ssa)),
-        SSAPrologueStatement(register: SSARegExpression(name: regs.gs.ssa)),
+        SSAPrologueStatement(register: regs.ax.ssa),
+        SSAPrologueStatement(register: regs.bx.ssa),
+        SSAPrologueStatement(register: regs.cx.ssa),
+        SSAPrologueStatement(register: regs.dx.ssa),
+        SSAPrologueStatement(register: regs.bp.ssa),
+        SSAPrologueStatement(register: regs.sp.ssa),
+        SSAPrologueStatement(register: regs.si.ssa),
+        SSAPrologueStatement(register: regs.di.ssa),
+        SSAPrologueStatement(register: regs.ip.ssa),
+        SSAPrologueStatement(register: regs.es.ssa),
+        SSAPrologueStatement(register: regs.cs.ssa),
+        SSAPrologueStatement(register: regs.ss.ssa),
+        SSAPrologueStatement(register: regs.ds.ssa),
+        SSAPrologueStatement(register: regs.fs.ssa),
+        SSAPrologueStatement(register: regs.gs.ssa),
     ]
 }
 
 func EpilogueStatements() -> [SSAStatement] {
     return [
         SSAEndStatement(),
-        SSAEpilogueStatement(register: SSARegExpression(name: regs.ax.ssa)),
-        SSAEpilogueStatement(register: SSARegExpression(name: regs.bx.ssa)),
-        SSAEpilogueStatement(register: SSARegExpression(name: regs.cx.ssa)),
-        SSAEpilogueStatement(register: SSARegExpression(name: regs.dx.ssa)),
-        SSAEpilogueStatement(register: SSARegExpression(name: regs.bp.ssa)),
-        SSAEpilogueStatement(register: SSARegExpression(name: regs.sp.ssa)),
-        SSAEpilogueStatement(register: SSARegExpression(name: regs.si.ssa)),
-        SSAEpilogueStatement(register: SSARegExpression(name: regs.di.ssa)),
-        SSAEpilogueStatement(register: SSARegExpression(name: regs.ip.ssa)),
-        SSAEpilogueStatement(register: SSARegExpression(name: regs.es.ssa)),
-        SSAEpilogueStatement(register: SSARegExpression(name: regs.cs.ssa)),
-        SSAEpilogueStatement(register: SSARegExpression(name: regs.ss.ssa)),
-        SSAEpilogueStatement(register: SSARegExpression(name: regs.ds.ssa)),
-        SSAEpilogueStatement(register: SSARegExpression(name: regs.fs.ssa)),
-        SSAEpilogueStatement(register: SSARegExpression(name: regs.gs.ssa)),
+        SSAEpilogueStatement(register: regs.ax.ssa),
+        SSAEpilogueStatement(register: regs.bx.ssa),
+        SSAEpilogueStatement(register: regs.cx.ssa),
+        SSAEpilogueStatement(register: regs.dx.ssa),
+        SSAEpilogueStatement(register: regs.bp.ssa),
+        SSAEpilogueStatement(register: regs.sp.ssa),
+        SSAEpilogueStatement(register: regs.si.ssa),
+        SSAEpilogueStatement(register: regs.di.ssa),
+        SSAEpilogueStatement(register: regs.ip.ssa),
+        SSAEpilogueStatement(register: regs.es.ssa),
+        SSAEpilogueStatement(register: regs.cs.ssa),
+        SSAEpilogueStatement(register: regs.ss.ssa),
+        SSAEpilogueStatement(register: regs.ds.ssa),
+        SSAEpilogueStatement(register: regs.fs.ssa),
+        SSAEpilogueStatement(register: regs.gs.ssa),
     ]
 }

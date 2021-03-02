@@ -36,8 +36,16 @@ func xx(x: UInt64) {
     rewrite(ssaGraph: c.ssaGraph, deleted: c.deleted)
 }
 
-//xx(x: Examples.noCall1)
-//print()
-//print(" --- ")
+xx(x: Examples.bpFunction)
+print()
+print(" --- ")
+print()
 xx(x: Examples.noCall2)
-
+print()
+print(" --- ")
+print()
+xx(x: Examples.noCall1)
+print()
+print(" --- ")
+print()
+xx(x: Examples.simpleFunction)

@@ -42,7 +42,7 @@ protocol SSAExpression {
     mutating func rename(name: String, index: Int)
 }
 
-struct SSARegExpression: SSAExpression {
+struct SSAVariableExpression: SSAExpression {
     var name: SSAName
     var dump: String { name.dump }
     var variables: Set<SSAName> { Set([name]) }
@@ -109,22 +109,23 @@ struct SSABinaryOpExpression: SSAExpression {
 
 protocol SSAStatement {
     var dump: String { get }
-    var allVariables: Set<SSAName> { get }
     
-    var lhsVariables: Set<SSAName> { get }
-    var rhsVariables: Set<SSAName> { get }
+    var allVariables:        Set<SSAName> { get }
+    var variablesDefined:    Set<SSAName> { get }
+    var variablesReferenced: Set<SSAName> { get }
     
-    mutating func renameRHS(name: String, index: Int)
-    mutating func renameLHS(name: String, index: Int)
+    mutating func renameDefinedVariables   (name: String, index: Int)
+    mutating func renameReferencedVariables(name: String, index: Int)
 }
 
 extension SSAStatement {
-    var allVariables: Set<SSAName> { lhsVariables.union(rhsVariables) }
-    var lhsVariables: Set<SSAName> { Set() }
-    var rhsVariables: Set<SSAName> { Set() }
+    var allVariables:        Set<SSAName> { variablesDefined.union(variablesReferenced) }
     
-    func renameRHS(name: String, index: Int) { }
-    func renameLHS(name: String, index: Int) { }
+    var variablesReferenced: Set<SSAName> { [] }
+    var variablesDefined:    Set<SSAName> { [] }
+    
+    func renameDefinedVariables    (name: String, index: Int) { }
+    func renameReferencedVariables (name: String, index: Int) { }
 }
 
 struct SSAPhiAssignmentStatement: SSAStatement {
@@ -147,19 +148,19 @@ struct SSAPhiAssignmentStatement: SSAStatement {
         return "\(myName) = phi(\(d))"
     }
     
-    var lhsVariables: Set<SSAName> {
+    var variablesDefined: Set<SSAName> {
         Set([SSAName(name: name, index: index)])
     }
     
-    var rhsVariables: Set<SSAName> {
+    var variablesReferenced: Set<SSAName> {
         Set(phis.map { SSAName(name: name, index: $0)})
     }
     
-    func renameRHS(name: String, index: Int) {
+    func renameDefinedVariables(name: String, index: Int) {
         fatalError()
     }
-    
-    func renameLHS(name: String, index: Int) {
+
+    func renameReferencedVariables(name: String, index: Int) {
         fatalError()
     }
 }
@@ -170,23 +171,14 @@ struct SSAVariableAssignmentStatement: SSAStatement {
     
     var dump: String { "\(name.dump) = \(expression.dump)" }
     
-    var allVariables: Set<SSAName> {
-        return Set([name]).union(expression.variables)
-    }
+    var variablesReferenced: Set<SSAName> { expression.variables }
+    var variablesDefined:    Set<SSAName> { [name] }
     
-    var rhsVariables: Set<SSAName> {
-        expression.variables
-    }
-    
-    var lhsVariables: Set<SSAName> {
-        Set([name])
-    }
-    
-    mutating func renameRHS(name: String, index: Int) {
+    mutating func renameReferencedVariables(name: String, index: Int) {
         expression.rename(name: name, index: index)
     }
     
-    mutating func renameLHS(name: String, index: Int) {
+    mutating func renameDefinedVariables(name: String, index: Int) {
         self.name.reindex(name: name, index: index)
     }
 }
@@ -197,17 +189,11 @@ struct SSAMemoryAssignmentStatement: SSAStatement {
     
     var dump: String { "memory(\(name.dump)) = \(expression.dump)" }
     
-    var lhsVariables: Set<SSAName> {
-        Set()
-    }
+    var variablesDefined: Set<SSAName> { [] }
     
-    var rhsVariables: Set<SSAName> {
-        expression.variables.union([name])
-    }
-    
-    mutating func renameLHS(name: String, index: Int) { }
+    mutating func renameDefinedVariables(name: String, index: Int) { }
 
-    mutating func renameRHS(name: String, index: Int) {
+    mutating func renameReferencedVariables(name: String, index: Int) {
         expression.rename(name: name, index: index)
         self.name.reindex(name: name, index: index)
     }
@@ -219,27 +205,26 @@ struct SSAFlagsAssignmentStatement: SSAStatement {
     
     var dump: String { "\(name.dump) = flags(\(expression.dump))" }
     
-    var lhsVariables: Set<SSAName> {
+    var variablesDefined: Set<SSAName> {
         [name]
     }
     
-    var rhsVariables: Set<SSAName> {
+    var variablesReferenced: Set<SSAName> {
         expression.variables.union([name])
     }
     
-    mutating func renameLHS(name: String, index: Int) {
+    mutating func renameDefinedVariables(name: String, index: Int) {
         self.name.reindex(name: name, index: index)
     }
 
-    mutating func renameRHS(name: String, index: Int) {
+    mutating func renameReferencedVariables(name: String, index: Int) {
         expression.rename(name: name, index: index)
     }
 }
 
-
 struct SSASegmentedMemoryRegAssignmentStatement: SSAStatement {
-    var segment: SSARegExpression?
-    var address: SSARegExpression
+    var segment: SSAVariableExpression?
+    var address: SSAVariableExpression
     var expression: SSAExpression
     
     var dump: String {
@@ -251,7 +236,7 @@ struct SSASegmentedMemoryRegAssignmentStatement: SSAStatement {
         }
     }
     
-    var rhsVariables: Set<SSAName> {
+    var variablesReferenced: Set<SSAName> {
         if let segment = segment {
             return expression
                 .variables
@@ -265,16 +250,11 @@ struct SSASegmentedMemoryRegAssignmentStatement: SSAStatement {
         }
     }
     
-    mutating func renameRHS(name: String, index: Int) {
+    mutating func renameReferencedVariables(name: String, index: Int) {
         segment?.rename(name: name, index: index)
         address.rename(name: name, index: index)
         expression.rename(name: name, index: index)
     }
-}
-
-struct SSAIntStatement: SSAStatement {
-    let interrupt: Int
-    var dump: String { String(format: "int(%x)", interrupt) }
 }
 
 struct SSALabel {
@@ -284,16 +264,20 @@ struct SSALabel {
 struct SSAJccStatement: SSAStatement {
     let type: String
     let target: SSALabel
-    var flags = SSARegExpression(name: SSAName(name: "flags"))
+    var flags = SSAName(name: "flags")
     
     var dump: String { "\(type)(\(flags.dump)) \(target.target)" }
     
-    var rhsVariables: Set<SSAName> { flags.variables }
+    var variablesReferenced: Set<SSAName> { [flags] }
     
-    mutating func renameRHS(name: String, index: Int) {
-        flags.rename(name: name, index: index)
+    mutating func renameReferencedVariables(name: String, index: Int) {
+        flags.reindex(name: name, index: index)
     }
+}
 
+struct SSAIntStatement: SSAStatement {
+    let interrupt: Int
+    var dump: String { String(format: "int(%x)", interrupt) }
 }
 
 struct SSACallStatement: SSAStatement {
@@ -304,42 +288,42 @@ struct SSACallStatement: SSAStatement {
 /* - */
 
 struct SSAPrologueStatement: SSAStatement {
-    var register: SSARegExpression
+    var register: SSAName
     var dump: String { "prologue(\(register.dump))" }
 
-    var lhsVariables: Set<SSAName> {
-        [register.name]
+    var variablesDefined: Set<SSAName> {
+        [register]
     }
     
-    mutating func renameLHS(name: String, index: Int) {
-        register.rename(name: name, index: index)
+    mutating func renameDefinedVariables(name: String, index: Int) {
+        register.reindex(name: name, index: index)
     }
 }
 
 struct SSAEpilogueStatement: SSAStatement {
-    var register: SSARegExpression
+    var register: SSAName
     var dump: String { "epilogue(\(register.dump))" }
 
-    var rhsVariables: Set<SSAName> {
-        [register.name]
+    var variablesReferenced: Set<SSAName> {
+        [register]
     }
     
-    mutating func renameRHS(name: String, index: Int) {
-        register.rename(name: name, index: index)
+    mutating func renameReferencedVariables(name: String, index: Int) {
+        register.reindex(name: name, index: index)
     }
 }
 
 struct SSAEndStatement: SSAStatement {
-    var sp = SSARegExpression(name: RegisterName.Designations.sp.ssa)
-    var ax = SSARegExpression(name: RegisterName.Designations.ax.ssa)
+    var sp = SSAVariableExpression(name: RegisterName.Designations.sp.ssa)
+    var ax = SSAVariableExpression(name: RegisterName.Designations.ax.ssa)
     
     var dump: String { "end(\(sp.dump), \(ax.dump))" }
     
-    var rhsVariables: Set<SSAName> {
+    var variablesReferenced: Set<SSAName> {
         Set([sp.name, ax.name])
     }
     
-    mutating func renameRHS(name: String, index: Int) {
+    mutating func renameReferencedVariables(name: String, index: Int) {
         sp.rename(name: name, index: index)
         ax.rename(name: name, index: index)
     }

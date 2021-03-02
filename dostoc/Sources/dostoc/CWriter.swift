@@ -23,7 +23,7 @@ func rewrite(_ expression: SSAExpression) -> String {
     if let ex = expression as? SSABinaryOpExpression {
         return "\(rewrite(ex.lhs)) \(ex.op.rawValue) \(rewrite(ex.rhs))"
     }
-    if let ex = expression as? SSARegExpression {
+    if let ex = expression as? SSAVariableExpression {
         return "\(ex.name.cName)"
     }
     if let ex = expression as? SSAConstExpression {
@@ -56,7 +56,7 @@ func rewrite(_ statement: SSAStatement) -> String? {
         return "\(s.name.cDeclaration) = flags(\(rewrite(s.expression)));"
     }
     if let s = statement as? SSAJccStatement {
-        return "if (FLAGS_\(s.type.uppercased())(\(s.flags.name.cName)))\n\t\tgoto \(s.target.target);"
+        return "if (FLAGS(\"\(s.type)\", \(s.flags.cName)))\n\t\tgoto \(s.target.target);"
     }
     if let s = statement as? SSACallStatement {
         return "sub_\(s.target.target)();"
@@ -124,8 +124,8 @@ func rewrite(ssaGraph: SSAGraph, deleted: Set<StatementIndex>)
         }
     }
     
-    let prologuesRegisters = Set(prologues.map { $0.register.name.dump })
-    let epiloguesRegisters = Set(epilogues.map { $0.register.name.dump })
+    let prologuesRegisters = Set(prologues.map { $0.register.name })
+    let epiloguesRegisters = Set(epilogues.map { $0.register.name })
         
     let unboundVariables = prologuesRegisters.subtracting(epiloguesRegisters)
     
@@ -133,10 +133,10 @@ func rewrite(ssaGraph: SSAGraph, deleted: Set<StatementIndex>)
     print()
     print("uint16_t memory_read(int);")
     print("uint16_t memory_write(int, int);")
+    print("void     do_int21h(int);")
     print()
-    print("#define flags(x) x")
-    print("#define FLAGS_LOOP(x) x")
-    print("#define FLAGS_JNS(x) x")
+    print("#define flags(x)    x")
+    print("#define FLAGS(x, y) y")
     print()
     print("void sub_\(ssaGraph.cfg.start.hexString)()")
     print("{")
