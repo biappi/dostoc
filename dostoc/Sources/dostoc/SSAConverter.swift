@@ -47,42 +47,44 @@ struct SSABlock {
     }
     
     func dump(deleted: Set<StatementIndex>, blockId: UInt64) {
+        let width = 50
+        
         for (i, stmt) in phiStatements.enumerated() {
             let dead = deleted.contains(.phi(blockId: blockId, phiNr: i))
-            let dood = dead ? "MORTO " : ""
-            
-            let dump = dood + stmt.dump
-            let width = 80
-            let spc2 = String(repeating: " ", count: width - dump.count)
+            let dood = dead ? "MORTO " : "      "
+            let dump = stmt.dump.padding(toLength: width + 30, withPad: " ", startingAt: 0)
             let vars = stmt.allVariables.map { $0.dump }.joined(separator: ", ")
 
-            print("\t\(dump)\(spc2)\(vars)")
+            print("\t\(dood)\(dump)\(vars)")
         }
         
         for (inNr, (insn, ssa)) in statements.enumerated() {
             for (i, stmt) in ssa.enumerated() {
                 let dead = deleted.contains(.stmt(blockId: blockId, insn: inNr, stmt: i))
-                let dood = dead ? "MORTO " : ""
+                let dood = dead ? "MORTO " : "      "
+                let dump = stmt.dump
                 
-                let dump = dood + stmt.dump
+                let d: String
+                let a: String
+                let v: String
                 
                 if i == 0 {
-                    let width = 40
-                    let spc = String(repeating: " ", count: width - dump.count)
-                    
                     let asm = insn?.asm ?? ""
-                    let spc2 = String(repeating: " ", count: width - asm.count)
-                    
                     let vars = stmt.allVariables.map { $0.dump }.joined(separator: ", ")
-                    print("\t\(dump)\(spc)\(asm)\(spc2)\(vars)")
+                    
+                    d = dump.padding(toLength: width, withPad: " ", startingAt: 0)
+                    a = asm .padding(toLength: 30,    withPad: " ", startingAt: 0)
+                    v = vars.padding(toLength: width, withPad: " ", startingAt: 0)
                 }
                 else {
-                    let width = 80
-                    let spc2 = String(repeating: " ", count: width - dump.count)
                     let vars = stmt.allVariables.map { $0.dump }.joined(separator: ", ")
 
-                    print("\t\(dump)\(spc2)\(vars)")
+                    d = dump.padding(toLength: width, withPad: " ", startingAt: 0)
+                    a = ""  .padding(toLength: 30   , withPad: " ", startingAt: 0)
+                    v = vars.padding(toLength: width, withPad: " ", startingAt: 0)
                 }
+                
+                print("\t\(dood)\(d)\(a)\(v)")
             }
         }
     }
@@ -194,7 +196,6 @@ struct SSAGraph {
             print()
             
             ssaBlocks[cfgblock.start]?.dump(deleted: deleted, blockId: cfgblock.start)
-            print()
             print()
 
             i += 1
@@ -375,6 +376,10 @@ struct Converter {
             
             if logDeadCodeElimination { print("\(stmtIdx) -- \(stmt)") }
             
+            if (stmt as? SSAJccStatement) != nil {
+                continue
+            }
+            
             if deleted.contains(stmtIdx) {
                 if logDeadCodeElimination {  print(" > already deleted \(stmtIdx)") }
                 continue
@@ -428,7 +433,6 @@ extension SSABlock {
         let op1 = insn.operands.1
 
         typealias regs = RegisterName.Designations
-        print(insn.asm)
         
         switch insn.mnemonic {
         
@@ -477,12 +481,14 @@ extension SSABlock {
             else if op0.operandType == .reg && op1.operandType == .mem {
                 assert(insn.prefixSegment == nil)
                 let op1mem = MemoryOperand(op1)
-                let temp = SSAName(name: "TEMP") // XXX
+                assert(op1mem.base != nil)
+                
+                let temp = SSAName(name: "TEMP_\(insn.offset.hexString)")
                 return [
                     SSAVariableAssignmentStatement(
                         name: temp,
                         expression: SSASumExpression(
-                            lhs: SSARegExpression(name: op1mem.base.ssa),
+                            lhs: SSARegExpression(name: op1mem.base!.ssa),
                             rhs: SSAConstExpression(value: Int(op1mem.offset))
                         )
                     ),
@@ -532,7 +538,7 @@ extension SSABlock {
             let label = SSALabel(target: String(format: "loc_%x", offset))
             
             return [
-                SSAJmpStatement(type: "jae", target: label)
+                SSAJccStatement(type: "jae", target: label)
             ]
         
         case UD_Ijns:
@@ -542,7 +548,17 @@ extension SSABlock {
             let label = SSALabel(target: String(format: "loc_%x", offset))
             
             return [
-                SSAJmpStatement(type: "jns", target: label)
+                SSAJccStatement(type: "jns", target: label)
+            ]
+
+        case UD_Ijnz:
+            assert(op0.operandType == .jimm)
+            
+            let offset = UInt64(Int64(insn.pc) + op0.int64value)
+            let label = SSALabel(target: String(format: "loc_%x", offset))
+            
+            return [
+                SSAJccStatement(type: "jnz", target: label)
             ]
 
         case UD_Iretf:
@@ -657,18 +673,57 @@ extension SSABlock {
                         rhs: SSAConstExpression(value: 1)
                     )
                 ),
-                SSAJmpStatement(type: "loop", target: label)
+                SSAJccStatement(type: "loop", target: label)
             ]
             
         case UD_Icall:
-            assert(op0.operandType == .jimm)
+            if op0.operandType == .ptr {
+                let so = String(format: "%x:%x", op0.lval.ptr.seg, op0.lval.ptr.off)
+                let label = SSALabel(target: so)
+                return [
+                    SSACallStatement(target: label)
+                ]
+            }
+            else {
+                assert(op0.operandType == .jimm)
+                
+                let offset = UInt64(Int64(insn.pc) + op0.int64value)
+                let label = SSALabel(target: String(format: "loc_%x", offset))
+                
+                return [
+                    SSACallStatement(target: label)
+                ]
+            }
+            
+        case UD_Icmp:
+            if op0.operandType == .mem && op1.operandType == .imm {
+                assert(insn.prefixSegment == nil)
+                
+                
+                assert(op0.offset == 16)
+                assert(op0.base == UD_NONE)
+                
+                let offset = UInt64(op0.uint64value)
+                let temp_mem = SSAName(name: "TEMP_\(insn.offset.hexString)")
+                
+                return [
+                    SSAVariableAssignmentStatement(
+                        name: temp_mem,
+                        expression: SSAMemoryLabelExpression(label: "\(offset.hexString)")
+                    ),
+                    SSAFlagsAssignmentStatement(
+                        name: SSAName(name: "flags"),
+                        expression: SSADiffExpression(
+                            lhs: SSARegExpression(name: temp_mem),
+                            rhs: SSAConstExpression(value: Int(op1.int64value))
+                        )
+                    )
 
-            let offset = UInt64(Int64(insn.pc) + op0.int64value)
-            let label = SSALabel(target: String(format: "loc_%x", offset))
-
-            return [
-                SSACallStatement(target: label)
-            ]
+                ]
+            }
+            else {
+                fatalError()
+            }
 
             
         default:

@@ -19,80 +19,12 @@ enum Examples {
 
 let udis = UDis86(data: code, base: RealToLinear(seg: 0x1000, off: 0x0000))
 //let anals = XrefAnalisys(at: Examples.main, using: udis)
-//let anals = XrefAnalisys(at: Examples.simpleFunction, using: udis)
-let anals = XrefAnalisys(at: Examples.twoLoops, using: udis)
-
-//print_disasm(xref: anals)
-//
-//print()
-//print(" --- ")
-//print()
+//let anals = XrefAnalisys(at: Examples.bpFunction, using: udis)
+let anals = XrefAnalisys(at: Examples.simpleFunction, using: udis)
+//let anals = XrefAnalisys(at: Examples.twoLoops, using: udis)
 
 let cfg = CFGGraph(from: anals)
-cfg.dump()
-
-//let doms = dominators(graph: cfg)
-//print(doms)
-//
-//let f = dominanceFrontier(graph: cfg, doms: doms)
-//print(f)
-
 var c = Converter(cfg: cfg)
+
+//cfg.dump()
 c.convert()
-
-struct ExampleGraph1 : Graph {
-    var start = 1
-    var nodes = [1, 2, 3, 4, 5, 6]
-    
-    func predecessors(of node: Int) -> [Int] {
-        return [
-            1: [],
-            2: [1, 5],
-            3: [2],
-            4: [2],
-            5: [3, 4],
-            6: [2]
-        ][node]!
-    }
-    
-    func successors(of node: Int) -> [Int] {
-        return [
-            1: [2],
-            2: [3, 4, 6],
-            3: [5],
-            4: [5],
-            5: [2],
-            6: []
-        ][node]!
-    }
-}
-
-struct ExampleGraph : Graph {
-    var start = 6
-    var nodes = [1, 2, 3, 4, 5, 6]
-    
-    func predecessors(of node: Int) -> [Int] {
-        return [
-            1: [2, 5],
-            2: [1, 3, 4],
-            3: [2, 4],
-            4: [6],
-            5: [6],
-            6: []
-        ][node]!
-    }
-    
-    func successors(of node: Int) -> [Int] {
-        return [
-            1: [2],
-            2: [1, 3],
-            3: [2],
-            4: [2, 3],
-            5: [1],
-            6: [5, 4]
-        ][node]!
-    }
-}
-
-//let DOM = dominators(graph: ExampleGraph())
-//print(DOM)

@@ -86,14 +86,13 @@ enum OperandSize {
 }
 
 struct MemoryOperand {
-    let base: RegisterName
+    let base: RegisterName?
     let offset: Int64
     
     init(_ operand: ud_operand) {
         assert(operand.index == UD_NONE)
-        assert((operand.base != UD_NONE) || (operand.index != UD_NONE))
 
-        base = operand.registerName
+        base = operand.base != UD_NONE ? operand.registerName : nil
         
         switch operand.offset {
         case  8: offset = Int64(operand.lval.sbyte)

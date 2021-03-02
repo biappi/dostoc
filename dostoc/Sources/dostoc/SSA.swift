@@ -60,6 +60,14 @@ struct SSAMemoryExpression: SSAExpression {
     }
 }
 
+struct SSAMemoryLabelExpression: SSAExpression {
+    var label: String
+    var dump: String { "memory(\(label))"}
+
+    var variables: Set<SSAName> { [] }
+    mutating func rename(name: String, index: Int) { }
+}
+
 struct SSAConstExpression: SSAExpression {
     let value: Int
     var dump: String { String(format: "%x", value) }
@@ -201,6 +209,32 @@ struct SSAMemoryAssignmentStatement: SSAStatement {
     }
 }
 
+struct SSAFlagsAssignmentStatement: SSAStatement {
+    var name: SSAName
+    var expression: SSAExpression
+    
+    var dump: String { "\(name.dump) = flags(\(expression.dump))" }
+    
+    var lhsVariables: Set<SSAName> {
+        Set()
+    }
+    
+    var rhsVariables: Set<SSAName> {
+        expression.variables.union([name])
+    }
+    
+    mutating func renameLHS(name: String, index: Int) {
+        if self.name.name == name {
+            self.name.index = index
+        }
+    }
+
+    mutating func renameRHS(name: String, index: Int) {
+        expression.rename(name: name, index: index)
+    }
+}
+
+
 struct SSASegmentedMemoryRegAssignmentStatement: SSAStatement {
     var segment: SSARegExpression?
     var address: SSARegExpression
@@ -245,11 +279,19 @@ struct SSALabel {
     let target: String
 }
 
-struct SSAJmpStatement: SSAStatement {
+struct SSAJccStatement: SSAStatement {
     let type: String
     let target: SSALabel
+    var flags = SSARegExpression(name: SSAName(name: "flags"))
     
     var dump: String { "jmp(\(type)) \(target.target)" }
+    
+    var rhsVariables: Set<SSAName> { flags.variables }
+    
+    mutating func renameRHS(name: String, index: Int) {
+        flags.rename(name: name, index: index)
+    }
+
 }
 
 struct SSACallStatement: SSAStatement {
