@@ -49,14 +49,14 @@ struct CFGGraph: Graph {
     
     var nodes: [UInt64] { Array(blocks.keys) }
     
-    init(from insns: InstructionXrefs) {
+    init(from xrefAnalisys: InstructionXrefs) {
         var blocks = [UInt64 : CFGBlock]()
-        var currentBlock: UInt64? = insns.start
+        var currentBlock: UInt64? = xrefAnalisys.start
         
-        for addr in anals.insns.keys.sorted() {
-            let insn = anals.insns[addr]!
+        for addr in xrefAnalisys.insns.keys.sorted() {
+            let insn = xrefAnalisys.insns[addr]!
                         
-            if insns.xrefs[addr] != nil {
+            if xrefAnalisys.xrefs[addr] != nil {
                 currentBlock = addr
             }
             
@@ -79,7 +79,7 @@ struct CFGGraph: Graph {
             }
         }
         
-        self.start = insns.start
+        self.start = xrefAnalisys.start
         self.blocks = blocks
         self.predecessors = predecessors
     }
@@ -94,7 +94,7 @@ struct CFGGraph: Graph {
     
     func dump() {
         print("CFG")
-        print("    start: \(cfg.start.hexString)")
+        print("    start: \(start.hexString)")
         print("    blocks: \(blocks.count)")
         
         let sortedBlocks = blocks

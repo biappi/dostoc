@@ -26,6 +26,12 @@ struct SSAName: Hashable {
         if let i = index { return "\(name)_\(i)" }
         else { return name }
     }
+    
+    mutating func reindex(name: String, index: Int) {
+        if self.name == name {
+            self.index = index
+        }
+    }
 }
 
 /* - */
@@ -42,9 +48,7 @@ struct SSARegExpression: SSAExpression {
     var variables: Set<SSAName> { Set([name]) }
     
     mutating func rename(name: String, index: Int) {
-        if self.name.name == name {
-            self.name.index = index
-        }
+        self.name.reindex(name: name, index: index)
     }
 }
 
@@ -54,9 +58,7 @@ struct SSAMemoryExpression: SSAExpression {
     var variables: Set<SSAName> { Set([name]) }
     
     mutating func rename(name: String, index: Int) {
-        if self.name.name == name {
-            self.name.index = index
-        }
+        self.name.reindex(name: name, index: index)
     }
 }
 
@@ -82,6 +84,7 @@ struct SSABinaryOpExpression: SSAExpression {
         case diff = "-"
         case mul  = "*"
         case shr  = ">>"
+        case shl  = "<<"
     }
     
     let op:  Operation
@@ -130,12 +133,18 @@ struct SSAPhiAssignmentStatement: SSAStatement {
     
     var index = 0
     
-    var dump: String {
-        let d = phis
+    var myName: String {
+        "\(name)_\(index)"
+    }
+    
+    var phiNames: [String] {
+        return phis
             .map { "\(name)_\($0)"}
-            .joined(separator: ", ")
-        
-        return "\(name)_\(index) = phi(\(d))"
+    }
+    
+    var dump: String {
+        let d = phiNames.joined(separator: ", ")
+        return "\(myName) = phi(\(d))"
     }
     
     var lhsVariables: Set<SSAName> {
@@ -178,9 +187,7 @@ struct SSAVariableAssignmentStatement: SSAStatement {
     }
     
     mutating func renameLHS(name: String, index: Int) {
-        if self.name.name == name {
-            self.name.index = index
-        }
+        self.name.reindex(name: name, index: index)
     }
 }
 
@@ -198,14 +205,11 @@ struct SSAMemoryAssignmentStatement: SSAStatement {
         expression.variables.union([name])
     }
     
-    mutating func renameLHS(name: String, index: Int) {
-        if self.name.name == name {
-            self.name.index = index
-        }
-    }
+    mutating func renameLHS(name: String, index: Int) { }
 
     mutating func renameRHS(name: String, index: Int) {
         expression.rename(name: name, index: index)
+        self.name.reindex(name: name, index: index)
     }
 }
 
@@ -224,9 +228,7 @@ struct SSAFlagsAssignmentStatement: SSAStatement {
     }
     
     mutating func renameLHS(name: String, index: Int) {
-        if self.name.name == name {
-            self.name.index = index
-        }
+        self.name.reindex(name: name, index: index)
     }
 
     mutating func renameRHS(name: String, index: Int) {
@@ -297,6 +299,23 @@ struct SSAJccStatement: SSAStatement {
 struct SSACallStatement: SSAStatement {
     let target: SSALabel
     var dump: String { "call(\(target.target))" }
+}
+
+/* - */
+
+struct SSAPrologueStatement: SSAStatement {
+    typealias regs  = RegisterName.Designations
+    
+    var register: SSARegExpression
+    var dump: String { "prologue(\(register.dump))" }
+
+    var lhsVariables: Set<SSAName> {
+        [register.name]
+    }
+    
+    mutating func renameLHS(name: String, index: Int) {
+        register.rename(name: name, index: index)
+    }
 }
 
 struct SSAEndStatement: SSAStatement {

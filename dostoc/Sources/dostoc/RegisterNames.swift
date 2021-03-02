@@ -8,6 +8,8 @@
 import Foundation
 import udis86
 
+typealias regs = RegisterName.Designations
+
 struct RegisterName: CustomStringConvertible {
     
     enum Designations {

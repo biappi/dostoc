@@ -27,7 +27,7 @@ func rewrite(_ expression: SSAExpression) -> String {
         return "\(ex.name.cName)"
     }
     if let ex = expression as? SSAConstExpression {
-        return String(format: "%x", ex.value);
+        return String(format: "0x%x", ex.value);
     }
     else {
         fatalError("\(expression)")
@@ -67,35 +67,97 @@ func rewrite(_ statement: SSAStatement) -> String {
     if let s = statement as? SSAPhiAssignmentStatement {
         return "// phis \(s.name)"
     }
+    if let s = statement as? SSAIntStatement {
+        return "do_int21h(\(s.interrupt));"
+    }
+    if let s = statement as? SSAPrologueStatement {
+        return "\(s.register.name.cDeclaration) = 0; // prologue"
+    }
     else {
         fatalError("\(statement)")
     }
 }
 
-func rewrite(ssaGraph: SSAGraph, deleted: Set<StatementIndex>) {
+func rewrite(ssaGraph: SSAGraph, deleted: Set<StatementIndex>)
+{
+    var phiVariables   = Set<String>()
+    var phiAssignments = [UInt64 : [(String, String)]]()
+    
+    ssaGraph.forEachSSAStatementIndex { idx in
+        guard
+            !deleted.contains(idx),
+            let s = ssaGraph.statementFor(idx) as? SSAPhiAssignmentStatement
+            
+        else {
+            return
+        }
+    
+        phiVariables.insert(s.myName)
+
+        for (phiName, block) in zip(s.phiNames, ssaGraph.cfg.predecessors(of: idx.blockId)) {
+            phiAssignments[block, default: []].append((s.myName, phiName))
+        }
+    }
+ 
+    let printPhiAssignmentsForBlock = { (block: UInt64) in
+        print()
+        for phiVar in phiAssignments[block, default: []] {
+            print("\t\(phiVar.0) = \(phiVar.1);")
+        }
+        print()
+    }
+
+    print("#include <stdint.h>")
+    print()
+    print("uint16_t memory_read(int);")
+    print("uint16_t memory_write(int, int);")
+    print()
+    print("#define flags(x) x")
+    print("#define FLAGS_LOOP(x) x")
+    print("#define FLAGS_JNS(x) x")
+    print()
     print("void sub_\(ssaGraph.cfg.start.hexString)()")
     print("{")
-
-    cfg.visit {
+    
+    for phiVariable in phiVariables {
+        print("\tuint16_t \(phiVariable);")
+    }
+    print()
+ 
+    ssaGraph.cfg.visit {
         block in
         
-        print("loc_\(block.start.hexString):")
+        print("loc_\(block.start.hexString):;")
+        
+        var statementsToRewrite = [StatementIndex]()
         
         ssaGraph.forEachSSAStatementIndex(in: block.start) {
-            let statement = ssaGraph.statementFor($0)
-            
-            if deleted.contains($0) {
-                return
-            }
-            
-            if (statement as? SSAPhiAssignmentStatement) != nil {
-                return
-            }
-            print("\t\(rewrite(statement))")
+            if deleted.contains($0) { return }
+            if case .phi = $0 { return }
+            statementsToRewrite.append($0)
         }
-
+        
+        for (i, index) in statementsToRewrite.enumerated() {
+            let lastStatement = (i == (statementsToRewrite.count - 1))
+            let blockIsJump = ssaGraph.cfg.successors(of: block.start).count > 1
+            
+            if lastStatement && blockIsJump {
+                printPhiAssignmentsForBlock(block.start)
+            }
+            
+            let stmt = ssaGraph.statementFor(index)
+            print("\t\(rewrite(stmt))")
+            
+            if lastStatement && !blockIsJump {
+                printPhiAssignmentsForBlock(block.start)
+            }
+        }
+                
         print()
     }
     
     print("}")
+    print()
+    print("// pbpaste | cc -x c -")
+    print()
 }

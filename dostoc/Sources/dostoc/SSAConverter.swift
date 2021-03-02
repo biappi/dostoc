@@ -74,14 +74,14 @@ struct SSABlock {
                     
                     d = dump.padding(toLength: width, withPad: " ", startingAt: 0)
                     a = asm .padding(toLength: 30,    withPad: " ", startingAt: 0)
-                    v = vars.padding(toLength: width, withPad: " ", startingAt: 0)
+                    v = vars
                 }
                 else {
                     let vars = stmt.allVariables.map { $0.dump }.joined(separator: ", ")
 
                     d = dump.padding(toLength: width, withPad: " ", startingAt: 0)
                     a = ""  .padding(toLength: 30   , withPad: " ", startingAt: 0)
-                    v = vars.padding(toLength: width, withPad: " ", startingAt: 0)
+                    v = vars
                 }
                 
                 print("\t\(dood)\(d)\(a)\(v)")
@@ -123,6 +123,13 @@ struct SSAGraph {
         cfg.visit { block in
             blocks[block.start] = SSABlock(cfgBlock: block)
         }
+        
+        blocks[cfg.start]!
+            .statements
+            .insert(
+                (nil, PrologueStatements()),
+                at: 0
+            )
         
         self.cfg = cfg
         self.ssaBlocks = blocks
@@ -209,11 +216,12 @@ struct SSAGraph {
 }
 
 struct Converter {
-    
+    let cfg: CFGGraph
     var ssaGraph: SSAGraph
+    
     var doms = [UInt64 : UInt64]()
     var frontier = [UInt64 : [UInt64]]()
-        
+    
     mutating func placePhis() {
         let variablesModifiedInNodes = ssaGraph.variablesModifiedForNodes
         let allVariables = ssaGraph.allVariables
@@ -418,6 +426,7 @@ struct Converter {
     }
         
     init(cfg: CFGGraph) {
+        self.cfg = cfg
         ssaGraph = SSAGraph(from: cfg)
         doms = dominators(graph: cfg)
         frontier = dominanceFrontier(graph: cfg, doms: doms)
@@ -437,7 +446,7 @@ extension SSABlock {
         let op0 = insn.operands.0
         let op1 = insn.operands.1
 
-        typealias regs = RegisterName.Designations
+        print(insn.asm)
         
         switch insn.mnemonic {
         
@@ -566,23 +575,36 @@ extension SSABlock {
                 SSAJccStatement(type: "jnz", target: label)
             ]
 
+        case UD_Iret:
+            return [SSAEndStatement()]
+
         case UD_Iretf:
             return [SSAEndStatement()]
             
         case UD_Iadd:
-            assert(op0.operandType == .reg)
-            assert(op1.operandType == .imm)
-            
-            return [
-                SSAVariableAssignmentStatement(
-                    name: op0.registerName.ssa,
-                    expression: SSASumExpression(
-                        lhs: SSARegExpression(name: op0.registerName.ssa),
-                        rhs: SSAConstExpression(value: Int(op1.uint64value))
+            if op0.operandType == .reg && op1.operandType == .imm {
+                return [
+                    SSAVariableAssignmentStatement(
+                        name: op0.registerName.ssa,
+                        expression: SSASumExpression(
+                            lhs: SSARegExpression(name: op0.registerName.ssa),
+                            rhs: SSAConstExpression(value: Int(op1.uint64value))
+                        )
                     )
-                )
-            ]
-
+                ]
+            }
+            if op0.operandType == .reg && op1.operandType == .reg {
+                return [
+                   SSAVariableAssignmentStatement(
+                       name: op0.registerName.ssa,
+                       expression: SSARegExpression(name: op0.registerName.ssa)
+                   )
+               ]
+            }
+            else {
+                fatalError()
+            }
+            
         case UD_Isub:
             assert(op0.operandType == .reg)
             assert(op1.operandType == .reg)
@@ -594,7 +616,13 @@ extension SSABlock {
                         lhs: SSARegExpression(name: op0.registerName.ssa),
                         rhs: SSARegExpression(name: op1.registerName.ssa)
                     )
+                ),
+                SSAFlagsAssignmentStatement(
+                    name: SSAName(name: "flags"),
+                    expression: SSARegExpression(name: op0.registerName.ssa)
+
                 )
+
             ]
             
         case UD_Imul:
@@ -637,6 +665,23 @@ extension SSABlock {
                     )
                 )
             ]
+            
+            
+        case UD_Ishl:
+            assert(op0.operandType == .reg)
+            assert(op1.operandType == .const)
+            
+            return [
+                SSAVariableAssignmentStatement(
+                    name: op0.registerName.ssa,
+                    expression: SSABinaryOpExpression(
+                        op: .shl,
+                        lhs: SSARegExpression(name: op0.registerName.ssa),
+                        rhs: SSAConstExpression(value: Int(op1.uint64value))
+                    )
+                )
+            ]
+
 
         case UD_Iinc:
             assert(op0.operandType == .reg)
@@ -661,6 +706,10 @@ extension SSABlock {
                         lhs: SSARegExpression(name: op0.registerName.ssa),
                         rhs: SSAConstExpression(value: 1)
                     )
+                ),
+                SSAFlagsAssignmentStatement(
+                    name: SSAName(name: "flags"),
+                    expression: SSARegExpression(name: op0.registerName.ssa)
                 )
             ]
 
@@ -677,6 +726,15 @@ extension SSABlock {
                         lhs: SSARegExpression(name: regs.cx.ssa),
                         rhs: SSAConstExpression(value: 1)
                     )
+                ),
+//                SSAFlagsAssignmentStatement(
+//                    name: SSAName(name: "flags"),
+//                    expression: SSARegExpression(name: op0.registerName.ssa)
+//                ),
+
+                SSAVariableAssignmentStatement(
+                    name: SSAName(name: "flags"),
+                    expression: SSARegExpression(name: regs.cx.ssa)
                 ),
                 SSAJccStatement(type: "loop", target: label)
             ]
@@ -736,4 +794,24 @@ extension SSABlock {
         }
     }
     
+}
+
+func PrologueStatements() -> [SSAStatement] {
+    return [
+        SSAPrologueStatement(register: SSARegExpression(name: regs.ax.ssa)),
+        SSAPrologueStatement(register: SSARegExpression(name: regs.bx.ssa)),
+        SSAPrologueStatement(register: SSARegExpression(name: regs.cx.ssa)),
+        SSAPrologueStatement(register: SSARegExpression(name: regs.dx.ssa)),
+        SSAPrologueStatement(register: SSARegExpression(name: regs.bp.ssa)),
+        SSAPrologueStatement(register: SSARegExpression(name: regs.sp.ssa)),
+        SSAPrologueStatement(register: SSARegExpression(name: regs.si.ssa)),
+        SSAPrologueStatement(register: SSARegExpression(name: regs.di.ssa)),
+        SSAPrologueStatement(register: SSARegExpression(name: regs.ip.ssa)),
+        SSAPrologueStatement(register: SSARegExpression(name: regs.es.ssa)),
+        SSAPrologueStatement(register: SSARegExpression(name: regs.cs.ssa)),
+        SSAPrologueStatement(register: SSARegExpression(name: regs.ss.ssa)),
+        SSAPrologueStatement(register: SSARegExpression(name: regs.ds.ssa)),
+        SSAPrologueStatement(register: SSARegExpression(name: regs.fs.ssa)),
+        SSAPrologueStatement(register: SSARegExpression(name: regs.gs.ssa)),
+    ]
 }
