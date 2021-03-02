@@ -158,19 +158,24 @@ struct SSAGraph {
         ssaBlocks[node]!.phiStatements.append(phi)
     }
 
+    func forEachSSAStatementIndex(in blockId: UInt64, visit: (StatementIndex) -> ()) {
+        let ssaBlock = ssaBlocks[blockId]!
+        
+        for (i, _) in ssaBlock.phiStatements.enumerated() {
+            visit(StatementIndex.phi(blockId: blockId, phiNr: i))
+        }
+        
+        for (i, (_, stmts)) in ssaBlock.statements.enumerated() {
+            for (s, _) in stmts.enumerated() {
+                visit(StatementIndex.stmt(blockId: blockId, insn: i, stmt: s))
+            }
+        }
+        
+    }
+    
     func forEachSSAStatementIndex(visit: (StatementIndex) -> ()) {
-        for (blockId, ssaBlock) in ssaBlocks {
-            for (i, _) in ssaBlock.phiStatements.enumerated() {
-                visit(StatementIndex.phi(blockId: blockId, phiNr: i))
-            }
-            
-            for (blockId, ssaBlock) in ssaBlocks {
-                for (i, (_, stmts)) in ssaBlock.statements.enumerated() {
-                    for (s, _) in stmts.enumerated() {
-                        visit(StatementIndex.stmt(blockId: blockId, insn: i, stmt: s))
-                    }
-                }
-            }
+        for (blockId, _) in ssaBlocks {
+            forEachSSAStatementIndex(in: blockId, visit: visit)
         }
     }
     

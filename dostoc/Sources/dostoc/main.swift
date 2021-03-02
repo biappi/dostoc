@@ -20,11 +20,12 @@ enum Examples {
 let udis = UDis86(data: code, base: RealToLinear(seg: 0x1000, off: 0x0000))
 //let anals = XrefAnalisys(at: Examples.main, using: udis)
 //let anals = XrefAnalisys(at: Examples.bpFunction, using: udis)
-let anals = XrefAnalisys(at: Examples.simpleFunction, using: udis)
-//let anals = XrefAnalisys(at: Examples.twoLoops, using: udis)
+//let anals = XrefAnalisys(at: Examples.simpleFunction, using: udis)
+let anals = XrefAnalisys(at: Examples.twoLoops, using: udis)
 
 let cfg = CFGGraph(from: anals)
 var c = Converter(cfg: cfg)
 
 //cfg.dump()
 c.convert()
+rewrite(ssaGraph: c.ssaGraph, deleted: c.deleted)

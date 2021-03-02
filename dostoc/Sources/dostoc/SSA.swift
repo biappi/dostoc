@@ -216,7 +216,7 @@ struct SSAFlagsAssignmentStatement: SSAStatement {
     var dump: String { "\(name.dump) = flags(\(expression.dump))" }
     
     var lhsVariables: Set<SSAName> {
-        Set()
+        [name]
     }
     
     var rhsVariables: Set<SSAName> {
@@ -284,7 +284,7 @@ struct SSAJccStatement: SSAStatement {
     let target: SSALabel
     var flags = SSARegExpression(name: SSAName(name: "flags"))
     
-    var dump: String { "jmp(\(type)) \(target.target)" }
+    var dump: String { "\(type)(\(flags.dump)) \(target.target)" }
     
     var rhsVariables: Set<SSAName> { flags.variables }
     
