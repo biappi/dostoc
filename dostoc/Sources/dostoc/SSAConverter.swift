@@ -576,10 +576,10 @@ extension SSABlock {
             ]
 
         case UD_Iret:
-            return [SSAEndStatement()]
+            return EpilogueStatements()
 
         case UD_Iretf:
-            return [SSAEndStatement()]
+            return EpilogueStatements()
             
         case UD_Iadd:
             if op0.operandType == .reg && op1.operandType == .imm {
@@ -813,5 +813,26 @@ func PrologueStatements() -> [SSAStatement] {
         SSAPrologueStatement(register: SSARegExpression(name: regs.ds.ssa)),
         SSAPrologueStatement(register: SSARegExpression(name: regs.fs.ssa)),
         SSAPrologueStatement(register: SSARegExpression(name: regs.gs.ssa)),
+    ]
+}
+
+func EpilogueStatements() -> [SSAStatement] {
+    return [
+        SSAEndStatement(),
+        SSAEpilogueStatement(register: SSARegExpression(name: regs.ax.ssa)),
+        SSAEpilogueStatement(register: SSARegExpression(name: regs.bx.ssa)),
+        SSAEpilogueStatement(register: SSARegExpression(name: regs.cx.ssa)),
+        SSAEpilogueStatement(register: SSARegExpression(name: regs.dx.ssa)),
+        SSAEpilogueStatement(register: SSARegExpression(name: regs.bp.ssa)),
+        SSAEpilogueStatement(register: SSARegExpression(name: regs.sp.ssa)),
+        SSAEpilogueStatement(register: SSARegExpression(name: regs.si.ssa)),
+        SSAEpilogueStatement(register: SSARegExpression(name: regs.di.ssa)),
+        SSAEpilogueStatement(register: SSARegExpression(name: regs.ip.ssa)),
+        SSAEpilogueStatement(register: SSARegExpression(name: regs.es.ssa)),
+        SSAEpilogueStatement(register: SSARegExpression(name: regs.cs.ssa)),
+        SSAEpilogueStatement(register: SSARegExpression(name: regs.ss.ssa)),
+        SSAEpilogueStatement(register: SSARegExpression(name: regs.ds.ssa)),
+        SSAEpilogueStatement(register: SSARegExpression(name: regs.fs.ssa)),
+        SSAEpilogueStatement(register: SSARegExpression(name: regs.gs.ssa)),
     ]
 }

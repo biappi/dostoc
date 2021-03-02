@@ -34,7 +34,7 @@ func rewrite(_ expression: SSAExpression) -> String {
     }
 }
 
-func rewrite(_ statement: SSAStatement) -> String {
+func rewrite(_ statement: SSAStatement) -> String? {
     if let s = statement as? SSAVariableAssignmentStatement {
         return "\(s.name.cDeclaration) = \(rewrite(s.expression));"
     }
@@ -70,8 +70,11 @@ func rewrite(_ statement: SSAStatement) -> String {
     if let s = statement as? SSAIntStatement {
         return "do_int21h(\(s.interrupt));"
     }
-    if let s = statement as? SSAPrologueStatement {
-        return "\(s.register.name.cDeclaration) = 0; // prologue"
+    if let _ = statement as? SSAPrologueStatement {
+        return nil
+    }
+    if let _ = statement as? SSAEpilogueStatement {
+        return nil
     }
     else {
         fatalError("\(statement)")
@@ -106,7 +109,26 @@ func rewrite(ssaGraph: SSAGraph, deleted: Set<StatementIndex>)
         }
         print()
     }
-
+    
+    var prologues = [SSAPrologueStatement]()
+    var epilogues = [SSAEpilogueStatement]()
+    
+    ssaGraph.forEachSSAStatementIndex { idx in
+        let stmt = ssaGraph.statementFor(idx)
+        
+        if let p = stmt as? SSAPrologueStatement {
+            prologues.append(p)
+        }
+        else if let e = stmt as? SSAEpilogueStatement {
+            epilogues.append(e)
+        }
+    }
+    
+    let prologuesRegisters = Set(prologues.map { $0.register.name.dump })
+    let epiloguesRegisters = Set(epilogues.map { $0.register.name.dump })
+        
+    let unboundVariables = prologuesRegisters.subtracting(epiloguesRegisters)
+    
     print("#include <stdint.h>")
     print()
     print("uint16_t memory_read(int);")
@@ -118,6 +140,11 @@ func rewrite(ssaGraph: SSAGraph, deleted: Set<StatementIndex>)
     print()
     print("void sub_\(ssaGraph.cfg.start.hexString)()")
     print("{")
+    
+    for v in unboundVariables {
+        print("\tuint16_t \(v) = 0;")
+    }
+    print()
     
     for phiVariable in phiVariables {
         print("\tuint16_t \(phiVariable);")
@@ -146,8 +173,9 @@ func rewrite(ssaGraph: SSAGraph, deleted: Set<StatementIndex>)
             }
             
             let stmt = ssaGraph.statementFor(index)
-            print("\t\(rewrite(stmt))")
             
+            rewrite(stmt).map { print("\t\($0)") }
+
             if lastStatement && !blockIsJump {
                 printPhiAssignmentsForBlock(block.start)
             }

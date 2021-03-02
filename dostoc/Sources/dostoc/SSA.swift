@@ -304,8 +304,6 @@ struct SSACallStatement: SSAStatement {
 /* - */
 
 struct SSAPrologueStatement: SSAStatement {
-    typealias regs  = RegisterName.Designations
-    
     var register: SSARegExpression
     var dump: String { "prologue(\(register.dump))" }
 
@@ -314,6 +312,19 @@ struct SSAPrologueStatement: SSAStatement {
     }
     
     mutating func renameLHS(name: String, index: Int) {
+        register.rename(name: name, index: index)
+    }
+}
+
+struct SSAEpilogueStatement: SSAStatement {
+    var register: SSARegExpression
+    var dump: String { "epilogue(\(register.dump))" }
+
+    var rhsVariables: Set<SSAName> {
+        [register.name]
+    }
+    
+    mutating func renameRHS(name: String, index: Int) {
         register.rename(name: name, index: index)
     }
 }
