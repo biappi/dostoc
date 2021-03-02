@@ -110,16 +110,31 @@ enum StatementIndex :  Hashable {
     }
 }
 
-
-struct Converter {
-    
+struct SSAGraph {
     let cfg: CFGGraph
     
     var ssaBlocks = [UInt64 : SSABlock]()
-    var doms = [UInt64 : UInt64]()
-    var frontier = [UInt64 : [UInt64]]()
+
+    init(from cfg: CFGGraph) {
+        var blocks = [UInt64 : SSABlock]()
+        
+        cfg.visit { block in
+            blocks[block.start] = SSABlock(cfgBlock: block)
+        }
+        
+        self.cfg = cfg
+        self.ssaBlocks = blocks
+    }
     
-    func variablesModifiedForNodes() -> [CFGGraph.NodeId : Set<SSAName>] {
+    var allVariables: Set<SSAName> {
+        return Set(
+            ssaBlocks
+                .compactMap { $0.value }
+                .flatMap { $0.allVariables }
+        )
+    }
+    
+    var variablesModifiedForNodes: [CFGGraph.NodeId : Set<SSAName>] {
         var variablesModifiedInNodes = [CFGGraph.NodeId : Set<SSAName>]()
         
         for (nodeId, ssaBlock) in ssaBlocks {
@@ -128,15 +143,7 @@ struct Converter {
         
         return variablesModifiedInNodes
     }
-    
-    func allVariables() -> Set<SSAName> {
-        return Set(
-            ssaBlocks
-                .compactMap { $0.value }
-                .flatMap { $0.allVariables }
-        )
-    }
-    
+
     mutating func insertPhiNode(for variable: SSAName, at node: UInt64) {
         let phi = SSAPhiAssignmentStatement(
             name: variable.name,
@@ -148,17 +155,69 @@ struct Converter {
         
         ssaBlocks[node]!.phiStatements.append(phi)
     }
+
+    func forEachSSAStatementIndex(visit: (StatementIndex) -> ()) {
+        for (blockId, ssaBlock) in ssaBlocks {
+            for (i, _) in ssaBlock.phiStatements.enumerated() {
+                visit(StatementIndex.phi(blockId: blockId, phiNr: i))
+            }
+            
+            for (blockId, ssaBlock) in ssaBlocks {
+                for (i, (_, stmts)) in ssaBlock.statements.enumerated() {
+                    for (s, _) in stmts.enumerated() {
+                        visit(StatementIndex.stmt(blockId: blockId, insn: i, stmt: s))
+                    }
+                }
+            }
+        }
+    }
     
+    func statementFor(_ idx: StatementIndex) -> SSAStatement {
+        switch idx {
+        case .phi(blockId: let blockId, phiNr: let phiNr):
+            return ssaBlocks[blockId]!.phiStatements[phiNr]
+            
+        case .stmt(blockId: let blockId, insn: let insn, stmt: let stmt):
+            return ssaBlocks[blockId]!.statements[insn].1[stmt]
+        }
+    }
+    
+    func dump(deleted: Set<StatementIndex>) {
+        var i = 0
+        cfg.visit {
+            cfgblock in
+            
+            let backlinks = cfg.predecessors(of: cfgblock.start).map { $0.hexString }.joined(separator: ", ")
+            let fwdlinks = cfgblock.end.map { $0.hexString }.joined(separator: ", ")
+
+            print("Block \(i) [\(cfgblock.start.hexString)] - (\(backlinks)) --> (\(fwdlinks))")
+            print()
+            
+            ssaBlocks[cfgblock.start]?.dump(deleted: deleted, blockId: cfgblock.start)
+            print()
+            print()
+
+            i += 1
+        }
+    }
+}
+
+struct Converter {
+    
+    var ssaGraph: SSAGraph
+    var doms = [UInt64 : UInt64]()
+    var frontier = [UInt64 : [UInt64]]()
+        
     mutating func placePhis() {
-        let variablesModifiedInNodes = variablesModifiedForNodes()
-        let allVariables = allVariables()
+        let variablesModifiedInNodes = ssaGraph.variablesModifiedForNodes
+        let allVariables = ssaGraph.allVariables
         
         for variable in allVariables {
             var placed   = Set<CFGGraph.NodeId>()
             var visited  = Set<CFGGraph.NodeId>()
             var worklist = Set<CFGGraph.NodeId>()
             
-            for (nodeId, _) in ssaBlocks {
+            for (nodeId, _) in ssaGraph.ssaBlocks {
                 if variablesModifiedInNodes[nodeId]!.contains(variable) {
                     visited.insert(nodeId)
                     worklist.insert(nodeId)
@@ -170,7 +229,7 @@ struct Converter {
                 
                 for y in frontier[x] ?? [] {
                     if !placed.contains(y) {
-                        insertPhiNode(for: variable, at: y)
+                        ssaGraph.insertPhiNode(for: variable, at: y)
                         
                         placed.insert(y)
                         
@@ -210,28 +269,28 @@ struct Converter {
             
             visited.insert(block)
             
-            for i in 0 ..< ssaBlocks[block]!.phiStatements.count {
-                let name = ssaBlocks[block]!.phiStatements[i].name
+            for i in 0 ..< ssaGraph.ssaBlocks[block]!.phiStatements.count {
+                let name = ssaGraph.ssaBlocks[block]!.phiStatements[i].name
                 genName(name)
-                ssaBlocks[block]!.phiStatements[i].index = getIndex(name)
+                ssaGraph.ssaBlocks[block]!.phiStatements[i].index = getIndex(name)
             }
             
-            for i in 0 ..< ssaBlocks[block]!.statements.count {
-                for k in 0 ..< ssaBlocks[block]!.statements[i].1.count {
-                    let rhsVariables = ssaBlocks[block]!.statements[i].1[k].rhsVariables
+            for i in 0 ..< ssaGraph.ssaBlocks[block]!.statements.count {
+                for k in 0 ..< ssaGraph.ssaBlocks[block]!.statements[i].1.count {
+                    let rhsVariables = ssaGraph.ssaBlocks[block]!.statements[i].1[k].rhsVariables
                     
                     for variable in rhsVariables {
-                        ssaBlocks[block]!.statements[i].1[k].renameRHS(
+                        ssaGraph.ssaBlocks[block]!.statements[i].1[k].renameRHS(
                             name: variable.name,
                             index: getIndex(variable.name)
                         )
                     }
                     
-                    let lhsVariables = ssaBlocks[block]!.statements[i].1[k].lhsVariables
+                    let lhsVariables = ssaGraph.ssaBlocks[block]!.statements[i].1[k].lhsVariables
                     
                     for variable in lhsVariables {
                         genName(variable.name)
-                        ssaBlocks[block]!.statements[i].1[k].renameLHS(
+                        ssaGraph.ssaBlocks[block]!.statements[i].1[k].renameLHS(
                             name: variable.name,
                             index: getIndex(variable.name)
                         )
@@ -240,9 +299,9 @@ struct Converter {
             }
             
             for successor in cfg.successors(of: block) {
-                for (p, phi) in ssaBlocks[successor]!.phiStatements.enumerated() {
+                for (p, phi) in ssaGraph.ssaBlocks[successor]!.phiStatements.enumerated() {
                     let s = cfg.predecessors(of: successor).firstIndex(of: block)!
-                    ssaBlocks[successor]!.phiStatements[p].phis[s] = getIndex(phi.name)
+                    ssaGraph.ssaBlocks[successor]!.phiStatements[p].phis[s] = getIndex(phi.name)
                 }
             }
             
@@ -257,11 +316,11 @@ struct Converter {
                 rename(child)
             }
             
-            for phi in ssaBlocks[block]!.phiStatements {
+            for phi in ssaGraph.ssaBlocks[block]!.phiStatements {
                 stacks[phi.name]!.removeLast()
             }
             
-            for stmt in ssaBlocks[block]!.statements.flatMap({ $0.1 }) {
+            for stmt in ssaGraph.ssaBlocks[block]!.statements.flatMap({ $0.1 }) {
                 for variable in stmt.lhsVariables {
                     stacks[variable.name]!.removeLast()
                 }
@@ -270,33 +329,7 @@ struct Converter {
         
         rename(cfg.start)
     }
-    
-    func forEachSSAStatementIndex(visit: (StatementIndex) -> ()) {
-        for (blockId, ssaBlock) in ssaBlocks {
-            for (i, _) in ssaBlock.phiStatements.enumerated() {
-                visit(StatementIndex.phi(blockId: blockId, phiNr: i))
-            }
-            
-            for (blockId, ssaBlock) in ssaBlocks {
-                for (i, (_, stmts)) in ssaBlock.statements.enumerated() {
-                    for (s, _) in stmts.enumerated() {
-                        visit(StatementIndex.stmt(blockId: blockId, insn: i, stmt: s))
-                    }
-                }
-            }
-        }
-    }
-    
-    func statementFor(_ idx: StatementIndex) -> SSAStatement {
-        switch idx {
-        case .phi(blockId: let blockId, phiNr: let phiNr):
-            return ssaBlocks[blockId]!.phiStatements[phiNr]
-            
-        case .stmt(blockId: let blockId, insn: let insn, stmt: let stmt):
-            return ssaBlocks[blockId]!.statements[insn].1[stmt]
-        }
-    }
-    
+        
     var deleted = Set<StatementIndex>()
 
     var logDeadCodeElimination = false
@@ -309,8 +342,8 @@ struct Converter {
         if logDeadCodeElimination { print() }
         if logDeadCodeElimination { print() }
         
-        forEachSSAStatementIndex { idx in
-            let stmt = statementFor(idx)
+        ssaGraph.forEachSSAStatementIndex { idx in
+            let stmt = ssaGraph.statementFor(idx)
             if logDeadCodeElimination { print(stmt.dump, "    ", idx) }
             
             for v in stmt.lhsVariables {
@@ -338,7 +371,7 @@ struct Converter {
 
         while !worklist.isEmpty {
             let stmtIdx = worklist.removeFirst()
-            let stmt = statementFor(stmtIdx)
+            let stmt = ssaGraph.statementFor(stmtIdx)
             
             if logDeadCodeElimination { print("\(stmtIdx) -- \(stmt)") }
             
@@ -365,7 +398,7 @@ struct Converter {
             if logDeadCodeElimination { print("        >>", rhs.map { $0.dump }) }
             
             for variable in rhs {
-                if logDeadCodeElimination { print("            >>", statementsDefining[variable, default: []].map { "\(statementFor($0).dump) - \($0)"}) }
+                if logDeadCodeElimination { print("            >>", statementsDefining[variable, default: []].map { "\(ssaGraph.statementFor($0).dump) - \($0)"}) }
                 worklist.formUnion(statementsDefining[variable, default: []])
                 
                 statementsUsing[variable]?.remove(stmtIdx)
@@ -374,35 +407,18 @@ struct Converter {
         }
     }
         
-    
-    mutating func convert() {
+    init(cfg: CFGGraph) {
+        ssaGraph = SSAGraph(from: cfg)
         doms = dominators(graph: cfg)
         frontier = dominanceFrontier(graph: cfg, doms: doms)
-        
-        cfg.visit { block in
-            ssaBlocks[block.start] = SSABlock(cfgBlock: block)
-        }
-        
+    }
+    
+    mutating func convert() {
         placePhis()
         rename()
         deadCodeElimination()
-            
-        var i = 0
-        cfg.visit {
-            cfgblock in
-            
-            let backlinks = cfg.predecessors(of: cfgblock.start).map { $0.hexString }.joined(separator: ", ")
-            let fwdlinks = cfgblock.end.map { $0.hexString }.joined(separator: ", ")
-
-            print("Block \(i) [\(cfgblock.start.hexString)] - (\(backlinks)) --> (\(fwdlinks))")
-            print()
-            
-            ssaBlocks[cfgblock.start]?.dump(deleted: deleted, blockId: cfgblock.start)
-            print()
-            print()
-
-            i += 1
-        }
+        
+        ssaGraph.dump(deleted: deleted)
     }
 }
 
