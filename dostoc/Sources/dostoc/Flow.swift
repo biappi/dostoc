@@ -120,9 +120,23 @@ enum InstructionBranches {
             return "seq  (\(n.hexString))"
         }
     }
+    
+    var asList: [UInt64] {
+        switch self {
+        case .none:                             return []
+        case .jmp (             target: let t): return [t]
+        case .jcc (next: let n, target: let t): return [n, t]
+        case .call(next: let n, target: _    ): return [n]
+        case .seq (next: let n               ): return [n]
+        }
+    }
 }
 
 extension Instruction {
+    var flowType: FlowType {
+        FlowType(for: self)
+    }
+    
     var branches: InstructionBranches {
         let next_target = { () -> UInt64 in
             
@@ -167,7 +181,7 @@ extension Instruction {
             return 0
         }
         
-        switch FlowType(for: self) {
+        switch flowType {
         case .seq:  return .seq  (next: pc)
         case .invd: return .none
         case .call: return .call (next: pc, target: next_target())

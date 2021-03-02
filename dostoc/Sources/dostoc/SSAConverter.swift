@@ -391,7 +391,7 @@ struct Converter {
         cfg.visit {
             cfgblock in
             
-            let backlinks = cfgblock.backlinks.map { $0.hexString }.joined(separator: ", ")
+            let backlinks = cfg.predecessors(of: cfgblock.start).map { $0.hexString }.joined(separator: ", ")
             let fwdlinks = cfgblock.end.map { $0.hexString }.joined(separator: ", ")
 
             print("Block \(i) [\(cfgblock.start.hexString)] - (\(backlinks)) --> (\(fwdlinks))")
