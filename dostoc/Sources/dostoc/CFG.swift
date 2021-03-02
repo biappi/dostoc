@@ -116,13 +116,17 @@ class CFGGraph: Graph {
         print("    start: \(startBlock.start.hexString)")
         print("    blocks: \(blocks.count)")
         
-        let sortedBlocks = sortedBlocks()
+        let sortedBlocks = blocks
+            .sorted { $0.key < $1.key }
+            .map { $0.value }
         
         for block in sortedBlocks  {
             let forward = block.end.map { "\"\($0)\"" }.joined(separator: ", ")
             print("\t\t\"\(block.start)\" -> \(forward)")
         }
+        
         print()
+        
         for block in sortedBlocks  {
             let backwards = block.backlinks.map { $0.hexString }.joined(separator: ", ")
             print("\t\t\(block.start.hexString) <- \(backwards) ")
@@ -134,41 +138,9 @@ class CFGGraph: Graph {
         print("")
     }
     
-    func sortedBlocks() -> [CFGBlock] {
-        return blocks
-            .sorted { $0.key < $1.key }
-            .map { $0.value }
-    }
-    
     func visit(_ visit: (CFGBlock) -> ()) {
-        Visit(
-            root: startBlock.start,
-            edges: { blocks[$0]!.end }
-        )
-        {
-            visit(blocks[$0]!)
+        for nodeId in breadthFirstInOrderVisit(start: startBlock.start) {
+            visit(blocks[nodeId]!)
         }
-    }
-    
-}
-
-func Visit<NodeId: Hashable>(
-    root: NodeId,
-    edges: (NodeId) -> [NodeId],
-    _ visit: (NodeId) -> ())
-{
-    var visited = Set<NodeId>()
-    var queue = [root]
-    
-    while !queue.isEmpty {
-        let node = queue.removeFirst()
-        
-        if visited.contains(node) {
-            continue
-        }
-        
-        visited.insert(node)
-        visit(node)
-        queue.append(contentsOf: edges(node))
     }
 }

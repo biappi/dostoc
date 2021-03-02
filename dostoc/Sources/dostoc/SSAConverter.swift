@@ -296,12 +296,6 @@ struct Converter {
             return ssaBlocks[blockId]!.statements[insn].1[stmt]
         }
     }
-
-    func forEachSSAStatement(visit: (SSAStatement) -> ()) {
-        forEachSSAStatementIndex { idx in
-            visit(statementFor(idx))
-        }
-    }
     
     var deleted = Set<StatementIndex>()
 
@@ -346,7 +340,7 @@ struct Converter {
             let stmtIdx = worklist.removeFirst()
             let stmt = statementFor(stmtIdx)
             
-            if logDeadCodeElimination { print("\(stmtIdx) -- \(stmtIdx.dump)") }
+            if logDeadCodeElimination { print("\(stmtIdx) -- \(stmt)") }
             
             if deleted.contains(stmtIdx) {
                 if logDeadCodeElimination {  print(" > already deleted \(stmtIdx)") }
