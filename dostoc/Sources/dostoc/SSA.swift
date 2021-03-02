@@ -181,17 +181,13 @@ struct SSAMemoryAssignmentStatement: SSAStatement {
     var expression: SSAExpression
     
     var dump: String { "memory(\(name.dump)) = \(expression.dump)" }
-
-    var allVariables: Set<SSAName> {
-        return Set([name]).union(expression.variables)
-    }
     
     var lhsVariables: Set<SSAName> {
-        Set([name])
+        Set()
     }
     
     var rhsVariables: Set<SSAName> {
-        expression.variables
+        expression.variables.union([name])
     }
     
     mutating func renameLHS(name: String, index: Int) {
