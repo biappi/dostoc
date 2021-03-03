@@ -35,7 +35,7 @@ func xx(x: UInt64) {
     var c = Converter(cfg: cfg)
         
     c.convert()
-//    rewrite(ssaGraph: c.ssaGraph, deleted: c.deleted)
+    rewrite(ssaGraph: c.ssaGraph, deleted: c.deleted)
 }
 
 //xx(x: Examples.bpFunction)
@@ -52,4 +52,4 @@ func xx(x: UInt64) {
 //print()
 //xx(x: Examples.main)
 
-xx(x: Examples.hasAX)
+xx(x: Examples.noCall2)

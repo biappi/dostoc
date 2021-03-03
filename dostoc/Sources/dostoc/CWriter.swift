@@ -14,14 +14,6 @@ extension SSAName {
 }
 
 func rewrite(_ expression: SSAExpression) -> String {
-    /*
-    if let ex = expression as? SSAMemoryExpression {
-        return "memory_read(\(ex.name.cName))"
-    }
-    if let ex = expression as? SSAMemoryLabelExpression {
-        return "memory_read(0x\(ex.label))"
-    }
- */
     if let ex = expression as? SSABinaryOpExpression {
         return "\(rewrite(ex.lhs)) \(ex.op.rawValue) \(rewrite(ex.rhs))"
     }
@@ -40,22 +32,26 @@ func rewrite(_ statement: SSAStatement) -> String? {
     if let s = statement as? SSAVariableAssignmentStatement {
         return "\(s.name.cDeclaration) = \(rewrite(s.expression));"
     }
-    /*
-    if let s = statement as? SSAMemoryAssignmentStatement {
-        return "memory_write(\(s.name.cName), \(rewrite(s.expression)));"
-    }
-    if let s = statement as? SSASegmentedMemoryRegAssignmentStatement {
-        let x: String
-        if let segment = s.segment {
-            x = "\(segment.dump):\(s.address.dump)"
-        }
-        else {
-            x = "\(s.address.dump)"
-        }
+    if let s = statement as? SSAMemoryAddressResolver {
+        switch s.addressing {
+        case .base(_, _):
+            guard let base = s.baseVariable else { break }
+            return "\(s.name.cDeclaration) = \(base.cName);"
 
-        return "memory_write(\(x), \(rewrite(s.expression)));"
+        case .baseOffset(_, _, let d):
+            guard let base = s.baseVariable else { break }
+            return "\(s.name.cDeclaration) = \(base.cName) \(d > 0 ? "+" : "-") \(String(format: "0x%x", abs(d)));"
+
+        default:
+            break
+        }
     }
- */
+    if let s = statement as? SSAMemoryWriteStatement {
+        return "memory_write(\(s.address.cName), \(rewrite(s.expression)));"
+    }
+    if let s = statement as? SSAMemoryReadStatement {
+        return "\(s.name.cDeclaration) = memory_read(\(s.address.cName));"
+    }
     if let s = statement as? SSAFlagsAssignmentStatement {
         return "\(s.name.cDeclaration) = flags(\(rewrite(s.expression)));"
     }
@@ -99,10 +95,10 @@ func rewrite(ssaGraph: SSAGraph, deleted: Set<StatementIndex>)
             return
         }
     
-        phiVariables.insert(s.name.name)
+        phiVariables.insert(s.name.cName)
 
         for (phiName, block) in zip(s.phiNames, ssaGraph.cfg.predecessors(of: idx.blockId)) {
-            phiAssignments[block, default: []].append((s.name.name, phiName))
+            phiAssignments[block, default: []].append((s.name.cName, phiName))
         }
     }
  
@@ -128,9 +124,9 @@ func rewrite(ssaGraph: SSAGraph, deleted: Set<StatementIndex>)
         }
     }
     
-    let prologuesRegisters = Set(prologues.map { $0.register.name })
-    let epiloguesRegisters = Set(epilogues.map { $0.register.name })
-        
+    let prologuesRegisters = Set(prologues.map { $0.register.cName })
+    let epiloguesRegisters = Set(epilogues.map { $0.register.cName })
+    
     let unboundVariables = prologuesRegisters.subtracting(epiloguesRegisters)
     
     print("#include <stdint.h>")

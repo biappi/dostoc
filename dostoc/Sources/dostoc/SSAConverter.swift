@@ -490,6 +490,7 @@ extension SSABlock {
                 ]
             }
             else if op0.operandType == .reg && op1.operandType == .mem {
+                print(op0.size, op1.size)
                 let tempName = TempName(insn)
                 
                 return [
@@ -513,6 +514,7 @@ extension SSABlock {
                 ]
             }
             else if op0.operandType == .mem && op1.operandType == .reg {
+                print(op0.size, op1.size)
                 let tempName = TempName(insn)
                 
                 return [
@@ -527,6 +529,8 @@ extension SSABlock {
                 ]
             }
             else if op0.operandType == .mem && op1.operandType == .imm {
+                print(op0.size, op1.size)
+
                 let tempName = TempName(insn)
                 
                 return [
@@ -858,19 +862,19 @@ func PrologueStatements() -> [SSAStatement] {
 func EpilogueStatements() -> [SSAStatement] {
     return [
         SSAEndStatement(),
-        SSAPrologueStatement(register: SSAName(register: .gpr(.ax, .low16))),
-        SSAPrologueStatement(register: SSAName(register: .gpr(.bx, .low16))),
-        SSAPrologueStatement(register: SSAName(register: .gpr(.cx, .low16))),
-        SSAPrologueStatement(register: SSAName(register: .gpr(.dx, .low16))),
-        SSAPrologueStatement(register: SSAName(register: .gpr(.bp, .low16))),
-        SSAPrologueStatement(register: SSAName(register: .gpr(.sp, .low16))),
-        SSAPrologueStatement(register: SSAName(register: .gpr(.si, .low16))),
-        SSAPrologueStatement(register: SSAName(register: .gpr(.di, .low16))),
-        SSAPrologueStatement(register: SSAName(register: .segment(.es))),
-        SSAPrologueStatement(register: SSAName(register: .segment(.cs))),
-        SSAPrologueStatement(register: SSAName(register: .segment(.ss))),
-        SSAPrologueStatement(register: SSAName(register: .segment(.ds))),
-        SSAPrologueStatement(register: SSAName(register: .segment(.fs))),
-        SSAPrologueStatement(register: SSAName(register: .segment(.gs))),
+        SSAEpilogueStatement(register: SSAName(register: .gpr(.ax, .low16))),
+        SSAEpilogueStatement(register: SSAName(register: .gpr(.bx, .low16))),
+        SSAEpilogueStatement(register: SSAName(register: .gpr(.cx, .low16))),
+        SSAEpilogueStatement(register: SSAName(register: .gpr(.dx, .low16))),
+        SSAEpilogueStatement(register: SSAName(register: .gpr(.bp, .low16))),
+        SSAEpilogueStatement(register: SSAName(register: .gpr(.sp, .low16))),
+        SSAEpilogueStatement(register: SSAName(register: .gpr(.si, .low16))),
+        SSAEpilogueStatement(register: SSAName(register: .gpr(.di, .low16))),
+        SSAEpilogueStatement(register: SSAName(register: .segment(.es))),
+        SSAEpilogueStatement(register: SSAName(register: .segment(.cs))),
+        SSAEpilogueStatement(register: SSAName(register: .segment(.ss))),
+        SSAEpilogueStatement(register: SSAName(register: .segment(.ds))),
+        SSAEpilogueStatement(register: SSAName(register: .segment(.fs))),
+        SSAEpilogueStatement(register: SSAName(register: .segment(.gs))),
     ]
 }
