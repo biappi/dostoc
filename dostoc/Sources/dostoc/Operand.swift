@@ -22,8 +22,8 @@ extension ud_operand {
         }
     }
     
-    var registerName: RegisterName {
-        RegisterName(base)!
+    var registerName: Register {
+        Register(base)!
     }
 
     var operandSize: OperandSize {
@@ -126,20 +126,20 @@ enum Addressing: CustomStringConvertible {
             case qword = 8
         }
         
-        let index: RegisterName
+        let index: Register
         let scale: Scale?
     }
     
     case displacement(segment: Segment?, displacement: UInt64)
-    case base(segment: Segment?, base: RegisterName)
-    case baseOffset(segment: Segment?, base: RegisterName, displacement: Int64)
-    case baseIndex(segment: Segment?, base: RegisterName, index: IndexScale)
-    case baseIndexOffset(segment: Segment?, base: RegisterName, index: IndexScale, displacement: Int64)
+    case base(segment: Segment?, base: Register)
+    case baseOffset(segment: Segment?, base: Register, displacement: Int64)
+    case baseIndex(segment: Segment?, base: Register, index: IndexScale)
+    case baseIndexOffset(segment: Segment?, base: Register, index: IndexScale, displacement: Int64)
     
     init(_ insn: Instruction, _ op: ud_operand) {
         let segment = insn.prefixSegment
-        let index   = RegisterName(op.index)
-        let base    = RegisterName(op.base)
+        let index   = Register(op.index)
+        let base    = Register(op.base)
         let offSize = OperandSize(Int(op.offset))
         
         let scale   = op.scale != 0
@@ -201,20 +201,20 @@ enum Addressing: CustomStringConvertible {
             return "[\(sg(s))\(hex(d))]"
             
         case .base(let s, let base):
-            return "[\(sg(s))\(base.designation)]"
+            return "[\(sg(s))\(base)]"
             
         case .baseOffset(let s, let base, let displacement):
-            return "[\(sg(s))\(base.designation)\(sgn(displacement))\(shex(abs(displacement)))]"
+            return "[\(sg(s))\(base)\(sgn(displacement))\(shex(abs(displacement)))]"
             
         case .baseIndex(let s, let base, let index):
-            return "[\(sg(s))\(base.designation)+\(index)]"
+            return "[\(sg(s))\(base)+\(index)]"
             
         case .baseIndexOffset(let s, let base, let index, let displacement):
-            return "[\(sg(s))\(base.designation)+\(index)\(sgn(displacement))\(shex(abs(displacement)))]"
+            return "[\(sg(s))\(base)+\(index)\(sgn(displacement))\(shex(abs(displacement)))]"
         }
     }
     
-    var base: RegisterName? {
+    var base: Register? {
         switch self {
         case .displacement   (_, _):              return nil
         case .base           (_, let base):       return base
@@ -224,7 +224,7 @@ enum Addressing: CustomStringConvertible {
         }
     }
     
-    var index: RegisterName? {
+    var index: Register? {
         switch self {
         case .displacement   (_, _):               return nil
         case .base           (_, _):               return nil
@@ -236,6 +236,6 @@ enum Addressing: CustomStringConvertible {
     
     static let stackPointer = Addressing.base(
         segment: .ss,
-        base: RegisterName(.sp, .low16)
+        base: .gpr(.sp, .low16)
     )
 }

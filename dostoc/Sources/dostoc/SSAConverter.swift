@@ -8,12 +8,8 @@
 import Foundation
 import udis86
 
-extension RegisterName {
-    var ssa: SSAName { designation.ssa }
-}
-
-extension RegisterName.Designations {
-    var ssa: SSAName { SSAName(name: "\(self)") }
+extension Register {
+    var ssa: SSAName { SSAName(register: self) }
 }
 
 struct SSABlock {
@@ -454,9 +450,9 @@ extension SSABlock {
                     expression: SSAVariableExpression(name: op0.registerName.ssa)
                 ),
                 SSAVariableAssignmentStatement(
-                    name: regs.sp.ssa,
+                    name: SSAName(register: .gpr(.sp, .low16)),
                     expression: SSADiffExpression(
-                        lhs: SSAVariableExpression(name: regs.sp.ssa),
+                        lhs: SSAVariableExpression(name: SSAName(register: .gpr(.sp, .low16))),
                         rhs: SSAConstExpression(value: 2)
                     )
                 )
@@ -468,9 +464,9 @@ extension SSABlock {
             
             return [
                 SSAVariableAssignmentStatement(
-                    name: regs.sp.ssa,
+                    name: SSAName(register: .gpr(.sp, .low16)),
                     expression: SSASumExpression(
-                        lhs: SSAVariableExpression(name: regs.sp.ssa),
+                        lhs: SSAVariableExpression(name: SSAName(register: .gpr(.sp, .low16))),
                         rhs: SSAConstExpression(value: 2)
                     )
                 ),
@@ -479,7 +475,7 @@ extension SSABlock {
                     addressing: Addressing.stackPointer
                 ),
                 SSAMemoryReadStatement(
-                    name: regs.sp.ssa,
+                    name: SSAName(register: .gpr(.sp, .low16)),
                     address: tempName
                 ),
             ]
@@ -647,10 +643,10 @@ extension SSABlock {
             else if op0.operandType == .reg && op1.operandType == nil {
                 return [
                     SSAVariableAssignmentStatement(
-                        name: regs.ax.ssa,
+                        name: SSAName(register: .gpr(.ax, .low16)),
                         expression: SSAMulExpression(
                             lhs: SSAVariableExpression(name: op0.registerName.ssa),
-                            rhs: SSAVariableExpression(name: regs.ax.ssa)
+                            rhs: SSAVariableExpression(name: SSAName(register: .gpr(.ax, .low16)))
                         )
                     )
                 ]
@@ -744,14 +740,14 @@ extension SSABlock {
             
             return [
                 SSAVariableAssignmentStatement(
-                    name: regs.cx.ssa,
+                    name: SSAName(register: .gpr(.cx, .low16)),
                     expression: SSADiffExpression(
-                        lhs: SSAVariableExpression(name: regs.cx.ssa),
+                        lhs: SSAVariableExpression(name: SSAName(register: .gpr(.cx, .low16))),
                         rhs: SSAConstExpression(value: 1)
                     )
                 ),
                 SSAFlagsAssignmentStatement(
-                    expression: SSAVariableExpression(name: regs.cx.ssa)
+                    expression: SSAVariableExpression(name: SSAName(register: .gpr(.cx, .low16)))
                 ),
                 SSAJccStatement(type: "loop", target: label)
             ]
@@ -842,41 +838,39 @@ func Jump(insn: Instruction, type: String? = nil) -> [SSAStatement] {
 
 func PrologueStatements() -> [SSAStatement] {
     return [
-        SSAPrologueStatement(register: regs.ax.ssa),
-        SSAPrologueStatement(register: regs.bx.ssa),
-        SSAPrologueStatement(register: regs.cx.ssa),
-        SSAPrologueStatement(register: regs.dx.ssa),
-        SSAPrologueStatement(register: regs.bp.ssa),
-        SSAPrologueStatement(register: regs.sp.ssa),
-        SSAPrologueStatement(register: regs.si.ssa),
-        SSAPrologueStatement(register: regs.di.ssa),
-        SSAPrologueStatement(register: regs.ip.ssa),
-        SSAPrologueStatement(register: regs.es.ssa),
-        SSAPrologueStatement(register: regs.cs.ssa),
-        SSAPrologueStatement(register: regs.ss.ssa),
-        SSAPrologueStatement(register: regs.ds.ssa),
-        SSAPrologueStatement(register: regs.fs.ssa),
-        SSAPrologueStatement(register: regs.gs.ssa),
+        SSAPrologueStatement(register: SSAName(register: .gpr(.ax, .low16))),
+        SSAPrologueStatement(register: SSAName(register: .gpr(.bx, .low16))),
+        SSAPrologueStatement(register: SSAName(register: .gpr(.cx, .low16))),
+        SSAPrologueStatement(register: SSAName(register: .gpr(.dx, .low16))),
+        SSAPrologueStatement(register: SSAName(register: .gpr(.bp, .low16))),
+        SSAPrologueStatement(register: SSAName(register: .gpr(.sp, .low16))),
+        SSAPrologueStatement(register: SSAName(register: .gpr(.si, .low16))),
+        SSAPrologueStatement(register: SSAName(register: .gpr(.di, .low16))),
+        SSAPrologueStatement(register: SSAName(register: .segment(.es))),
+        SSAPrologueStatement(register: SSAName(register: .segment(.cs))),
+        SSAPrologueStatement(register: SSAName(register: .segment(.ss))),
+        SSAPrologueStatement(register: SSAName(register: .segment(.ds))),
+        SSAPrologueStatement(register: SSAName(register: .segment(.fs))),
+        SSAPrologueStatement(register: SSAName(register: .segment(.gs))),
     ]
 }
 
 func EpilogueStatements() -> [SSAStatement] {
     return [
         SSAEndStatement(),
-        SSAEpilogueStatement(register: regs.ax.ssa),
-        SSAEpilogueStatement(register: regs.bx.ssa),
-        SSAEpilogueStatement(register: regs.cx.ssa),
-        SSAEpilogueStatement(register: regs.dx.ssa),
-        SSAEpilogueStatement(register: regs.bp.ssa),
-        SSAEpilogueStatement(register: regs.sp.ssa),
-        SSAEpilogueStatement(register: regs.si.ssa),
-        SSAEpilogueStatement(register: regs.di.ssa),
-        SSAEpilogueStatement(register: regs.ip.ssa),
-        SSAEpilogueStatement(register: regs.es.ssa),
-        SSAEpilogueStatement(register: regs.cs.ssa),
-        SSAEpilogueStatement(register: regs.ss.ssa),
-        SSAEpilogueStatement(register: regs.ds.ssa),
-        SSAEpilogueStatement(register: regs.fs.ssa),
-        SSAEpilogueStatement(register: regs.gs.ssa),
+        SSAPrologueStatement(register: SSAName(register: .gpr(.ax, .low16))),
+        SSAPrologueStatement(register: SSAName(register: .gpr(.bx, .low16))),
+        SSAPrologueStatement(register: SSAName(register: .gpr(.cx, .low16))),
+        SSAPrologueStatement(register: SSAName(register: .gpr(.dx, .low16))),
+        SSAPrologueStatement(register: SSAName(register: .gpr(.bp, .low16))),
+        SSAPrologueStatement(register: SSAName(register: .gpr(.sp, .low16))),
+        SSAPrologueStatement(register: SSAName(register: .gpr(.si, .low16))),
+        SSAPrologueStatement(register: SSAName(register: .gpr(.di, .low16))),
+        SSAPrologueStatement(register: SSAName(register: .segment(.es))),
+        SSAPrologueStatement(register: SSAName(register: .segment(.cs))),
+        SSAPrologueStatement(register: SSAName(register: .segment(.ss))),
+        SSAPrologueStatement(register: SSAName(register: .segment(.ds))),
+        SSAPrologueStatement(register: SSAName(register: .segment(.fs))),
+        SSAPrologueStatement(register: SSAName(register: .segment(.gs))),
     ]
 }

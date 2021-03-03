@@ -9,17 +9,49 @@ import Foundation
 import udis86
 
 struct SSAName: Hashable {
-    let name:  String
+    enum VariableType: Hashable {
+        case string(String)
+        case register(Register)
+    }
+    
+    let type: VariableType
     var index: Int?
     
     init(name: String) {
-        self.name = name
+        self.type = .string(name)
         self.index = nil
     }
-    
+
+    init(register: Register) {
+        self.type = .register(register)
+        self.index = nil
+    }
+
     init(name: String, index: Int?) {
-        self.name = name
+        self.type = .string(name)
         self.index = index
+    }
+    
+    var name: String {
+        switch type {
+        case .string(let a):
+            return a
+            
+        case .register(let r):
+            switch r {
+            case .gpr(let r, _): return "\(r)"
+            case .segment(let s): return "\(s)"
+            }
+        }
+    }
+    
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(dump)
+        hasher.combine(index)
+    }
+    
+    static func ==(lhs: SSAName, rhs: SSAName) -> Bool {
+        return (lhs.name == rhs.name) && (lhs.index == rhs.index)
     }
     
     var dump: String {
@@ -46,6 +78,23 @@ struct SSAVariableExpression: SSAExpression {
     var name: SSAName
     var dump: String { name.dump }
     var variables: Set<SSAName> { Set([name]) }
+    
+    mutating func rename(name: String, index: Int) {
+        self.name.reindex(name: name, index: index)
+    }
+}
+
+struct SSARegisterExpression: SSAExpression {
+    var name: SSAName
+    let register: Register
+
+    var dump: String { name.dump }
+    var variables: Set<SSAName> { [name] }
+
+    init(_ register: Register) {
+        self.register = register
+        self.name = SSAName(name: register.description)
+    }
     
     mutating func rename(name: String, index: Int) {
         self.name.reindex(name: name, index: index)
@@ -261,8 +310,8 @@ struct SSAMemoryAddressResolver: SSAStatement {
         self.name = name
         self.addressing = addressing
         
-        self.baseVariable  = addressing.base.map  { $0.designation.ssa }
-        self.indexVariable = addressing.index.map { $0.designation.ssa }
+        self.baseVariable  = addressing.base.map  { SSAName(register: $0) }
+        self.indexVariable = addressing.index.map { SSAName(register: $0) }
     }
     
     var variablesDefined: Set<SSAName> {
