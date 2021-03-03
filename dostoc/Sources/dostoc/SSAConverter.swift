@@ -162,7 +162,7 @@ struct SSAGraph {
 
     mutating func insertPhiNode(for variable: SSAName, at node: UInt64) {
         let phi = SSAPhiAssignmentStatement(
-            name: variable.name,
+            name: variable,
             phis: Array(
                 repeating: 0,
                 count: cfg.predecessors(of: node).count
@@ -292,8 +292,8 @@ struct Converter {
             
             for i in 0 ..< ssaGraph.ssaBlocks[block]!.phiStatements.count {
                 let name = ssaGraph.ssaBlocks[block]!.phiStatements[i].name
-                genName(name)
-                ssaGraph.ssaBlocks[block]!.phiStatements[i].index = getIndex(name)
+                genName(name.name)
+                ssaGraph.ssaBlocks[block]!.phiStatements[i].name.index = getIndex(name.name)
             }
             
             for i in 0 ..< ssaGraph.ssaBlocks[block]!.statements.count {
@@ -322,7 +322,7 @@ struct Converter {
             for successor in cfg.successors(of: block) {
                 for (p, phi) in ssaGraph.ssaBlocks[successor]!.phiStatements.enumerated() {
                     let s = cfg.predecessors(of: successor).firstIndex(of: block)!
-                    ssaGraph.ssaBlocks[successor]!.phiStatements[p].phis[s] = getIndex(phi.name)
+                    ssaGraph.ssaBlocks[successor]!.phiStatements[p].phis[s] = getIndex(phi.name.name)
                 }
             }
             
@@ -338,7 +338,7 @@ struct Converter {
             }
             
             for phi in ssaGraph.ssaBlocks[block]!.phiStatements {
-                stacks[phi.name]!.removeLast()
+                stacks[phi.name.name]!.removeLast()
             }
             
             for stmt in ssaGraph.ssaBlocks[block]!.statements.flatMap({ $0.1 }) {

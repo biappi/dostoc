@@ -99,10 +99,10 @@ func rewrite(ssaGraph: SSAGraph, deleted: Set<StatementIndex>)
             return
         }
     
-        phiVariables.insert(s.myName)
+        phiVariables.insert(s.name.name)
 
         for (phiName, block) in zip(s.phiNames, ssaGraph.cfg.predecessors(of: idx.blockId)) {
-            phiAssignments[block, default: []].append((s.myName, phiName))
+            phiAssignments[block, default: []].append((s.name.name, phiName))
         }
     }
  

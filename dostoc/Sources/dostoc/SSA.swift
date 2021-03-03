@@ -27,17 +27,13 @@ struct SSAName: Hashable {
         self.index = nil
     }
 
-    init(name: String, index: Int?) {
-        self.type = .string(name)
-        self.index = index
-    }
-    
     var name: String {
         switch type {
         case .string(let a):
             return a
             
         case .register(let r):
+//            return r.description
             switch r {
             case .gpr(let r, _): return "\(r)"
             case .segment(let s): return "\(s)"
@@ -49,7 +45,7 @@ struct SSAName: Hashable {
         hasher.combine(dump)
         hasher.combine(index)
     }
-    
+
     static func ==(lhs: SSAName, rhs: SSAName) -> Bool {
         return (lhs.name == rhs.name) && (lhs.index == rhs.index)
     }
@@ -93,7 +89,7 @@ struct SSARegisterExpression: SSAExpression {
 
     init(_ register: Register) {
         self.register = register
-        self.name = SSAName(name: register.description)
+        self.name = SSAName(register: register)
     }
     
     mutating func rename(name: String, index: Int) {
@@ -177,31 +173,31 @@ extension SSANoVariablesReferenced {
 /* - */
 
 struct SSAPhiAssignmentStatement: SSAStatement {
-    let name: String
+    var name: SSAName
     var phis: [Int]
-    
-    var index = 0
-    
-    var myName: String {
-        "\(name)_\(index)"
-    }
-    
+        
     var phiNames: [String] {
         return phis
-            .map { "\(name)_\($0)"}
+            .map { "\(name.name)_\($0)"}
     }
     
     var dump: String {
         let d = phiNames.joined(separator: ", ")
-        return "\(myName) = phi(\(d))"
+        return "\(name.dump) = phi(\(d))"
     }
     
     var variablesDefined: Set<SSAName> {
-        Set([SSAName(name: name, index: index)])
+        [name]
     }
     
     var variablesReferenced: Set<SSAName> {
-        Set(phis.map { SSAName(name: name, index: $0)})
+        Set(
+            phis.map {
+                var n = name
+                n.index = $0
+                return n
+            }
+        )
     }
     
     func renameDefinedVariables(name: String, index: Int) {
