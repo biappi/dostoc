@@ -47,6 +47,8 @@ struct SSABlock {
     }
     
     func dump(deleted: Set<StatementIndex>, blockId: UInt64) {
+        let tabled = true
+        
         let width = 50
         
         for (i, stmt) in phiStatements.enumerated() {
@@ -54,8 +56,15 @@ struct SSABlock {
             let dood = dead ? "MORTO " : "      "
             let dump = stmt.dump.padding(toLength: width + 30, withPad: " ", startingAt: 0)
             let vars = stmt.allVariables.map { $0.dump }.joined(separator: ", ")
-
-            print("\t\(dood)\(dump)\(vars)")
+            
+            if tabled {
+                print("\t\(dood)\(dump)\(vars)")
+            }
+            else {
+                print("\t\(dood)stmt: \(stmt.dump)")
+                print("\t      vars: \(vars)")
+                print()
+            }
         }
         
         for (inNr, (insn, ssa)) in statements.enumerated() {
@@ -72,27 +81,21 @@ struct SSABlock {
                 let dood = dead ? "MORTO " : "      "
                 let dump = stmt.dump
                 
-                let d: String
-                let a: String
-                let v: String
+                let vars = stmt.allVariables.map { $0.dump }.joined(separator: ", ")
+                let asm = i == 0 ? insn?.asm ?? "" : ""
+                let d = dump.padding(toLength: width, withPad: " ", startingAt: 0)
+                let a = asm .padding(toLength: 30,    withPad: " ", startingAt: 0)
+                let v = vars
                 
-                if i == 0 {
-                    let asm = insn?.asm ?? ""
-                    let vars = stmt.allVariables.map { $0.dump }.joined(separator: ", ")
-                    
-                    d = dump.padding(toLength: width, withPad: " ", startingAt: 0)
-                    a = asm .padding(toLength: 30,    withPad: " ", startingAt: 0)
-                    v = vars
+                if tabled {
+                    print("\t\(dood)\(d)\(a)\(v)")
                 }
                 else {
-                    let vars = stmt.allVariables.map { $0.dump }.joined(separator: ", ")
-
-                    d = dump.padding(toLength: width, withPad: " ", startingAt: 0)
-                    a = ""  .padding(toLength: 30   , withPad: " ", startingAt: 0)
-                    v = vars
+                    print("\t\(dood)stmt: \(stmt.dump)")
+                    print("\t      vars: \(vars)")
+                    print("\t      asm:  \(a)")
+                    print()
                 }
-                
-                print("\t\(dood)\(d)\(a)\(v)")
             }
         }
     }
@@ -429,17 +432,27 @@ extension SSABlock {
         let op0 = insn.operands.0
         let op1 = insn.operands.1
 
+        let TempName = { (insn: Instruction) -> (SSAName, SSAVariableExpression) in
+            let n = SSAName(name: "T_\(insn.offset.hexString)")
+            return (n, SSAVariableExpression(name: n))
+        }
+        
         print(insn.asm)
         
         switch insn.mnemonic {
         
         case UD_Ipush:
             assert(op0.operandType == .reg)
+            let (tempName, tempExpression) = TempName(insn)
             
             return [
-                SSAMemoryAssignmentStatement(
-                    name: regs.sp.ssa,
+                SSAVariableAssignmentStatement(
+                    name: tempName,
                     expression: SSAVariableExpression(name: op0.registerName.ssa)
+                ),
+                SSAMemoryWriteStatement(
+                    expression: tempExpression,
+                    addressing: Addressing.stackPointer
                 ),
                 SSAVariableAssignmentStatement(
                     name: regs.sp.ssa,
@@ -452,6 +465,8 @@ extension SSABlock {
             
         case UD_Ipop:
             assert(op0.operandType == .reg)
+            let (tempName, tempExpression) = TempName(insn)
+
             return [
                 SSAVariableAssignmentStatement(
                     name: regs.sp.ssa,
@@ -460,9 +475,13 @@ extension SSABlock {
                         rhs: SSAConstExpression(value: 2)
                     )
                 ),
+                SSAMemoryReadStatement(
+                    name: tempName,
+                    addressing: Addressing.stackPointer
+                ),
                 SSAVariableAssignmentStatement(
-                    name: op0.registerName.ssa,
-                    expression: SSAMemoryExpression(name: regs.sp.ssa)
+                    name: regs.sp.ssa,
+                    expression: tempExpression
                 )
             ]
             
@@ -476,22 +495,16 @@ extension SSABlock {
                 ]
             }
             else if op0.operandType == .reg && op1.operandType == .mem {
-                assert(insn.prefixSegment == nil)
-                let op1mem = MemoryOperand(op1)
-                assert(op1mem.base != nil)
+                let (tempName, tempExpression) = TempName(insn)
                 
-                let temp = SSAName(name: "TEMP_\(insn.offset.hexString)")
                 return [
-                    SSAVariableAssignmentStatement(
-                        name: temp,
-                        expression: SSASumExpression(
-                            lhs: SSAVariableExpression(name: op1mem.base!.ssa),
-                            rhs: SSAConstExpression(value: Int(op1mem.offset))
-                        )
+                    SSAMemoryReadStatement(
+                        name: tempName,
+                        addressing: Addressing(insn, op1)
                     ),
                     SSAVariableAssignmentStatement(
                         name: op0.registerName.ssa,
-                        expression: SSAMemoryExpression(name: temp)
+                        expression: tempExpression
                     )
                 ]
             }
@@ -504,16 +517,16 @@ extension SSABlock {
                 ]
             }
             else if op0.operandType == .mem && op1.operandType == .reg {
-                let segment = insn
-                    .prefixSegment
-                    .flatMap { SSAName(name: "\($0)")}
-                    .flatMap { SSAVariableExpression(name: $0)}
+                let (tempName, tempExpression) = TempName(insn)
                 
                 return [
-                    SSASegmentedMemoryRegAssignmentStatement(
-                        segment: segment,
-                        address: SSAVariableExpression(name: op0.registerName.ssa),
+                    SSAVariableAssignmentStatement(
+                        name: tempName,
                         expression: SSAVariableExpression(name: op1.registerName.ssa)
+                    ),
+                    SSAMemoryWriteStatement(
+                        expression: tempExpression,
+                        addressing: Addressing(insn, op0)
                     )
                 ]
             }
@@ -529,35 +542,14 @@ extension SSABlock {
             ]
             
         case UD_Ijae:
-            assert(op0.operandType == .jimm)
+            return Jump(insn: insn, type: "jae")
             
-            let offset = UInt64(Int64(insn.pc) + op0.int64value)
-            let label = SSALabel(target: String(format: "loc_%x", offset))
-            
-            return [
-                SSAJccStatement(type: "jae", target: label)
-            ]
-        
         case UD_Ijns:
-            assert(op0.operandType == .jimm)
+            return Jump(insn: insn, type: "jns")
             
-            let offset = UInt64(Int64(insn.pc) + op0.int64value)
-            let label = SSALabel(target: String(format: "loc_%x", offset))
-            
-            return [
-                SSAJccStatement(type: "jns", target: label)
-            ]
-
         case UD_Ijnz:
-            assert(op0.operandType == .jimm)
+            return Jump(insn: insn, type: "jnz")
             
-            let offset = UInt64(Int64(insn.pc) + op0.int64value)
-            let label = SSALabel(target: String(format: "loc_%x", offset))
-            
-            return [
-                SSAJccStatement(type: "jnz", target: label)
-            ]
-
         case UD_Iret:
             return EpilogueStatements()
 
@@ -576,7 +568,7 @@ extension SSABlock {
                     )
                 ]
             }
-            if op0.operandType == .reg && op1.operandType == .reg {
+            else if op0.operandType == .reg && op1.operandType == .reg {
                 return [
                    SSAVariableAssignmentStatement(
                        name: op0.registerName.ssa,
@@ -589,24 +581,35 @@ extension SSABlock {
             }
             
         case UD_Isub:
-            assert(op0.operandType == .reg)
-            assert(op1.operandType == .reg)
-            
-            return [
-                SSAVariableAssignmentStatement(
-                    name: op0.registerName.ssa,
-                    expression: SSADiffExpression(
-                        lhs: SSAVariableExpression(name: op0.registerName.ssa),
-                        rhs: SSAVariableExpression(name: op1.registerName.ssa)
+            if op0.operandType == .reg && op1.operandType == .imm {
+                return [
+                    SSAVariableAssignmentStatement(
+                        name: op0.registerName.ssa,
+                        expression: SSABinaryOpExpression(
+                            op: .diff,
+                            lhs: SSAVariableExpression(name: op0.registerName.ssa),
+                            rhs: SSAConstExpression(value: Int(op1.uint64value))
+                        )
                     )
-                ),
-                SSAFlagsAssignmentStatement(
-                    name: SSAName(name: "flags"),
-                    expression: SSAVariableExpression(name: op0.registerName.ssa)
-
-                )
-
-            ]
+                ]
+            }
+            else if op0.operandType == .reg && op1.operandType == .reg {
+                return [
+                    SSAVariableAssignmentStatement(
+                        name: op0.registerName.ssa,
+                        expression: SSADiffExpression(
+                            lhs: SSAVariableExpression(name: op0.registerName.ssa),
+                            rhs: SSAVariableExpression(name: op1.registerName.ssa)
+                        )
+                    ),
+                    SSAFlagsAssignmentStatement(
+                        expression: SSAVariableExpression(name: op0.registerName.ssa)
+                    )
+                ]
+            }
+            else {
+                fatalError()
+            }
             
         case UD_Imul:
             if op0.operandType == .reg && op1.operandType == .reg {
@@ -691,7 +694,6 @@ extension SSABlock {
                     )
                 ),
                 SSAFlagsAssignmentStatement(
-                    name: SSAName(name: "flags"),
                     expression: SSAVariableExpression(name: op0.registerName.ssa)
                 )
             ]
@@ -699,9 +701,11 @@ extension SSABlock {
         case UD_Iloop:
             assert(op0.operandType == .jimm)
             
-            let offset = UInt64(Int64(insn.pc) + op0.int64value)
-            let label = SSALabel(target: String(format: "loc_%x", offset))
-
+            let label = SSALabel(
+                pc: insn.pc,
+                offset: op0.int64value
+            )
+            
             return [
                 SSAVariableAssignmentStatement(
                     name: regs.cx.ssa,
@@ -710,13 +714,7 @@ extension SSABlock {
                         rhs: SSAConstExpression(value: 1)
                     )
                 ),
-//                SSAFlagsAssignmentStatement(
-//                    name: SSAName(name: "flags"),
-//                    expression: SSARegExpression(name: op0.registerName.ssa)
-//                ),
-
-                SSAVariableAssignmentStatement(
-                    name: SSAName(name: "flags"),
+                SSAFlagsAssignmentStatement(
                     expression: SSAVariableExpression(name: regs.cx.ssa)
                 ),
                 SSAJccStatement(type: "loop", target: label)
@@ -724,46 +722,43 @@ extension SSABlock {
             
         case UD_Icall:
             if op0.operandType == .ptr {
-                let so = String(format: "%x:%x", op0.lval.ptr.seg, op0.lval.ptr.off)
-                let label = SSALabel(target: so)
                 return [
-                    SSACallStatement(target: label)
+                    SSACallStatement(
+                        target: SSALabel(
+                            seg:    op0.lval.ptr.seg,
+                            offset: op0.lval.ptr.off
+                        )
+                    )
                 ]
             }
             else {
                 assert(op0.operandType == .jimm)
                 
-                let offset = UInt64(Int64(insn.pc) + op0.int64value)
-                let label = SSALabel(target: String(format: "loc_%x", offset))
-                
                 return [
-                    SSACallStatement(target: label)
+                    SSACallStatement(
+                        target: SSALabel(
+                            pc:     insn.pc,
+                            offset: op0.int64value
+                        )
+                    )
                 ]
             }
             
         case UD_Icmp:
             if op0.operandType == .mem && op1.operandType == .imm {
-                assert(insn.prefixSegment == nil)
-                
-                assert(op0.offset == 16)
-                assert(op0.base == UD_NONE)
-                
-                let offset = UInt64(op0.uint64value)
-                let temp_mem = SSAName(name: "TEMP_\(insn.offset.hexString)")
-                
+                let (tempName, tempExpression) = TempName(insn)
+
                 return [
-                    SSAVariableAssignmentStatement(
-                        name: temp_mem,
-                        expression: SSAMemoryLabelExpression(label: "\(offset.hexString)")
+                    SSAMemoryReadStatement(
+                        name: tempName,
+                        addressing: Addressing(insn, op0)
                     ),
                     SSAFlagsAssignmentStatement(
-                        name: SSAName(name: "flags"),
                         expression: SSADiffExpression(
-                            lhs: SSAVariableExpression(name: temp_mem),
+                            lhs: tempExpression,
                             rhs: SSAConstExpression(value: Int(op1.int64value))
                         )
                     )
-
                 ]
             }
             else {
@@ -776,6 +771,19 @@ extension SSABlock {
         }
     }
     
+}
+
+func Jump(insn: Instruction, type: String) -> [SSAStatement] {
+    assert(insn.operands.0.operandType == .jimm)
+    
+    let label = SSALabel(
+        pc: insn.pc,
+        offset: insn.operands.0.int64value
+    )
+    
+    return [
+        SSAJccStatement(type: type, target: label)
+    ]
 }
 
 func PrologueStatements() -> [SSAStatement] {

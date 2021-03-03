@@ -14,12 +14,14 @@ extension SSAName {
 }
 
 func rewrite(_ expression: SSAExpression) -> String {
+    /*
     if let ex = expression as? SSAMemoryExpression {
         return "memory_read(\(ex.name.cName))"
     }
     if let ex = expression as? SSAMemoryLabelExpression {
         return "memory_read(0x\(ex.label))"
     }
+ */
     if let ex = expression as? SSABinaryOpExpression {
         return "\(rewrite(ex.lhs)) \(ex.op.rawValue) \(rewrite(ex.rhs))"
     }

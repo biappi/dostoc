@@ -9,7 +9,6 @@ import Foundation
 import udis86
 
 extension ud_operand {
-    
     var operandType: OperandType? {
         switch type {
         case UD_OP_REG:   return .reg
@@ -23,16 +22,16 @@ extension ud_operand {
         }
     }
     
-    var operandSize: OperandSize {
-        switch size {
-        case  8: return .size_8
-        case 16: return .size_16
-        default: fatalError("\(size)")
-        }
+    var registerName: RegisterName {
+        RegisterName(base)!
     }
 
-    var uint64value: UInt64 {
-        switch operandSize {
+    var operandSize: OperandSize {
+        return OperandSize(Int(size))!
+    }
+    
+    func uint64value(size: OperandSize) -> UInt64 {
+        switch size {
         case .size_8:  return UInt64(lval.ubyte)
         case .size_16: return UInt64(lval.uword)
         case .size_32: return UInt64(lval.udword)
@@ -40,13 +39,21 @@ extension ud_operand {
         }
     }
     
-    var int64value: Int64 {
-        switch operandSize {
+    func int64value(size: OperandSize) -> Int64 {
+        switch size {
         case .size_8:  return Int64(lval.sbyte)
         case .size_16: return Int64(lval.sword)
         case .size_32: return Int64(lval.sdword)
         case .size_64: return Int64(lval.sqword)
         }
+    }
+
+    var uint64value: UInt64 {
+        return uint64value(size: operandSize)
+    }
+
+    var int64value: Int64 {
+        return int64value(size: operandSize)
     }
 }
 
@@ -59,46 +66,176 @@ enum OperandType {
     case const
 }
 
-enum OperandSize {
-    case size_8
-    case size_16
-    case size_32
-    case size_64
+enum OperandSize: Int {
+    case size_8  =  8
+    case size_16 = 16
+    case size_32 = 32
+    case size_64 = 64
     
-    var ctype: String {
-        switch self {
-        case .size_8:  return "uint8_t "
-        case .size_16: return "uint16_t"
-        case .size_32: return "uint32_t"
-        case .size_64: return "uint64_t"
+    init?(_ size: Int) {
+        if size == 0 {
+            return nil
         }
-    }
-    
-    var readMemoryFunctionName: String {
-        switch self {
-        case .size_8:  return "c86_memory_read_8  "
-        case .size_16: return "c86_memory_read_16 "
-        case .size_32: return "c86_memory_read_32 "
-        case .size_64: return "c86_memory_read_64 "
+        
+        switch size {
+        case  8: self = .size_8
+        case 16: self = .size_16
+        default: fatalError("\(size)")
         }
-
     }
 }
 
-struct MemoryOperand {
-    let base: RegisterName?
-    let offset: Int64
-    
-    init(_ operand: ud_operand) {
-        assert(operand.index == UD_NONE)
+struct OperandCast: CustomStringConvertible {
+    enum Size: Int {
+        case byte  =   8
+        case word  =  16
+        case dword =  32
+        case qword =  64
+        case tword =  80
+        case oword = 128
+        case yword = 256
 
-        base = operand.base != UD_NONE ? operand.registerName : nil
-        
-        switch operand.offset {
-        case  8: offset = Int64(operand.lval.sbyte)
-        case 16: offset = Int64(operand.lval.sword)
-        case 32: offset = Int64(operand.lval.sdword)
-        default: fatalError()
+        var description: String {
+            switch self {
+            case .byte:  return "byte"
+            case .word:  return "word"
+            case .dword: return "dword"
+            case .qword: return "qword"
+            case .tword: return "tword"
+            case .oword: return "oword"
+            case .yword: return "yword"
+            }
         }
     }
+    
+    let far: Bool
+    let size: Size
+    
+    var description: String {
+        let far = self.far ? "far " : ""
+        return "\(far)\(size)"
+    }
+}
+
+enum Addressing: CustomStringConvertible {
+    struct IndexScale {
+        enum Scale: Int {
+            case byte  = 1
+            case word  = 2
+            case dword = 4
+            case qword = 8
+        }
+        
+        let index: RegisterName
+        let scale: Scale?
+    }
+    
+    case displacement(segment: Segment?, displacement: UInt64)
+    case base(segment: Segment?, base: RegisterName)
+    case baseOffset(segment: Segment?, base: RegisterName, displacement: Int64)
+    case baseIndex(segment: Segment?, base: RegisterName, index: IndexScale)
+    case baseIndexOffset(segment: Segment?, base: RegisterName, index: IndexScale, displacement: Int64)
+    
+    init(_ insn: Instruction, _ op: ud_operand) {
+        let segment = insn.prefixSegment
+        let index   = RegisterName(op.index)
+        let base    = RegisterName(op.base)
+        let offSize = OperandSize(Int(op.offset))
+        
+        let scale   = op.scale != 0
+            ? IndexScale.Scale(rawValue: Int(op.scale))
+            : nil
+        
+        let indexScale = index.map {
+            IndexScale(index: $0, scale: scale)
+        }
+
+        switch (base, indexScale, offSize) {
+        case (.some(let base), .some(let index), .some(let size)):
+            self = .baseIndexOffset(
+                segment: segment,
+                base: base,
+                index: index,
+                displacement: op.int64value(size: size)
+            )
+            
+        case (.some(let base), .some(let index), nil):
+            self = .baseIndex(
+                segment: segment,
+                base: base,
+                index: index
+            )
+            
+        case (.some(let base), nil, .some(let size)):
+            self = .baseOffset(
+                segment: segment,
+                base: base,
+                displacement: op.int64value(size: size)
+            )
+
+        case (.some(let base), nil, nil):
+            self = .base(
+                segment: segment,
+                base: base
+            )
+            
+        case (nil, nil, .some(let size)):
+            self = .displacement(
+                segment: segment,
+                displacement: op.uint64value(size: size)
+            )
+            
+        default:
+            fatalError()
+        }
+    }
+    
+    var description: String {
+        let sg   = { (s: Segment?) in s.map { "\($0) " } ?? "" }
+        let hex  = { (x: UInt64)   in String(format: "%x", x) }
+        let shex = { (x: Int64)    in String(format: "%x", x) }
+        let sgn  = { (x: Int64)    in x > 0 ? "+" : "-" }
+        
+        switch self {
+        case .displacement(let s, let d):
+            return "[\(sg(s))\(hex(d))]"
+            
+        case .base(let s, let base):
+            return "[\(sg(s))\(base.designation)]"
+            
+        case .baseOffset(let s, let base, let displacement):
+            return "[\(sg(s))\(base.designation)\(sgn(displacement))\(shex(abs(displacement)))]"
+            
+        case .baseIndex(let s, let base, let index):
+            return "[\(sg(s))\(base.designation)+\(index)]"
+            
+        case .baseIndexOffset(let s, let base, let index, let displacement):
+            return "[\(sg(s))\(base.designation)+\(index)\(sgn(displacement))\(shex(abs(displacement)))]"
+        }
+    }
+    
+    var base: RegisterName? {
+        switch self {
+        case .displacement   (_, _):              return nil
+        case .base           (_, let base):       return base
+        case .baseOffset     (_, let base, _):    return base
+        case .baseIndex      (_, let base, _):    return base
+        case .baseIndexOffset(_, let base, _, _): return base
+        }
+    }
+    
+    var index: RegisterName? {
+        switch self {
+        case .displacement   (_, _):               return nil
+        case .base           (_, _):               return nil
+        case .baseOffset     (_, _, _):            return nil
+        case .baseIndex      (_, _, let index):    return index.index
+        case .baseIndexOffset(_, _, let index, _): return index.index
+        }
+    }
+    
+    static let stackPointer = Addressing.base(
+        segment: .ss,
+        base: RegisterName(.sp, .low16)
+    )
 }

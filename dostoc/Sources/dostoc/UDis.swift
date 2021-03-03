@@ -8,31 +8,6 @@
 import Foundation
 import udis86
 
-enum Segment {
-    case cs
-    case ss
-    case ds
-    case es
-    case fs
-    case gs
-    
-    init?(_ int: ud_type) {
-        if int == UD_NONE {
-            return nil
-        }
-        
-        switch int {
-        case UD_R_CS: self = .cs
-        case UD_R_SS: self = .ss
-        case UD_R_DS: self = .ds
-        case UD_R_ES: self = .es
-        case UD_R_FS: self = .fs
-        case UD_R_GS: self = .gs
-        default: fatalError()
-        }
-    }
-}
-
 struct Instruction {
     let pc: UInt64
     let mnemonic: ud_mnemonic_code
