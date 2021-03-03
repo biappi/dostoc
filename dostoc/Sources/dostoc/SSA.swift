@@ -67,6 +67,7 @@ struct SSABinaryOpExpression: SSAExpression {
         case mul  = "*"
         case shr  = ">>"
         case shl  = "<<"
+        case and  = "&&"
     }
     
     let op:  Operation
@@ -216,6 +217,11 @@ struct SSALabel {
         let so = String(format: "%x:%x", seg, offset)
         target = so
     }
+}
+
+struct SSAJmpStatement: SSAStatement, SSANoVariablesDefined, SSANoVariablesReferenced {
+    let target: SSALabel
+    var dump: String { "jmp \(target.target)" }
 }
 
 struct SSAJccStatement: SSAStatement, SSANoVariablesDefined {

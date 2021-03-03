@@ -18,6 +18,8 @@ enum Examples {
     
     static let noCall1         = RealToLinear(seg: 0x1a75, off: 0x01e5)
     static let noCall2         = RealToLinear(seg: 0x2def, off: 0x0270)
+    
+    static let hasAX           = RealToLinear(seg: 0x1dc6, off: 0x6036)
 
 }
 
@@ -36,16 +38,18 @@ func xx(x: UInt64) {
 //    rewrite(ssaGraph: c.ssaGraph, deleted: c.deleted)
 }
 
-xx(x: Examples.bpFunction)
-print()
-print(" --- ")
-print()
-xx(x: Examples.noCall2)
-print()
-print(" --- ")
-print()
-xx(x: Examples.noCall1)
-print()
-print(" --- ")
-print()
+//xx(x: Examples.bpFunction)
+//print()
+//print(" --- ")
+//print()
+//xx(x: Examples.noCall2)
+//print()
+//print(" --- ")
+//print()
+//xx(x: Examples.noCall1)
+//print()
+//print(" --- ")
+//print()
 //xx(x: Examples.main)
+
+xx(x: Examples.hasAX)

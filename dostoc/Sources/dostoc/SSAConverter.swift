@@ -530,6 +530,21 @@ extension SSABlock {
                     )
                 ]
             }
+            else if op0.operandType == .mem && op1.operandType == .imm {
+                let tempName = TempName(insn)
+                
+                return [
+                    SSAMemoryAddressResolver(
+                        name: tempName,
+                        addressing: Addressing(insn, op0)
+                    ),
+                    SSAMemoryWriteStatement(
+                        address: tempName,
+                        expression: SSAConstExpression(value: Int(op1.uint64value))
+                    )
+                ]
+            }
+
             else {
                 fatalError()
             }
@@ -541,6 +556,9 @@ extension SSABlock {
                 SSAIntStatement(interrupt: Int(op0.uint64value))
             ]
             
+        case UD_Ijmp:
+            return Jump(insn: insn)
+
         case UD_Ijae:
             return Jump(insn: insn, type: "jae")
             
@@ -550,6 +568,9 @@ extension SSABlock {
         case UD_Ijnz:
             return Jump(insn: insn, type: "jnz")
             
+        case UD_Ijz:
+            return Jump(insn: insn, type: "jz")
+
         case UD_Iret:
             return EpilogueStatements()
 
@@ -698,6 +719,21 @@ extension SSABlock {
                 )
             ]
 
+        case UD_Iand:
+            assert(op0.operandType == .reg)
+            assert(op1.operandType == .imm)
+
+            return [
+                SSAVariableAssignmentStatement(
+                    name: op0.registerName.ssa,
+                    expression: SSABinaryOpExpression(
+                        op: .and,
+                        lhs: SSAVariableExpression(name: op0.registerName.ssa),
+                        rhs: SSAConstExpression(value: Int(op1.uint64value))
+                    )
+                )
+            ]
+        
         case UD_Iloop:
             assert(op0.operandType == .jimm)
             
@@ -766,6 +802,16 @@ extension SSABlock {
                     )
                 ]
             }
+            if op0.operandType == .reg && op1.operandType == .imm {
+                return [
+                    SSAFlagsAssignmentStatement(
+                        expression: SSADiffExpression(
+                            lhs: SSAVariableExpression(name: op0.registerName.ssa),
+                            rhs: SSAConstExpression(value: Int(op1.int64value))
+                        )
+                    )
+                ]
+            }
             else {
                 fatalError()
             }
@@ -778,7 +824,7 @@ extension SSABlock {
     
 }
 
-func Jump(insn: Instruction, type: String) -> [SSAStatement] {
+func Jump(insn: Instruction, type: String? = nil) -> [SSAStatement] {
     assert(insn.operands.0.operandType == .jimm)
     
     let label = SSALabel(
@@ -786,9 +832,12 @@ func Jump(insn: Instruction, type: String) -> [SSAStatement] {
         offset: insn.operands.0.int64value
     )
     
-    return [
-        SSAJccStatement(type: type, target: label)
-    ]
+    if let type = type {
+        return [ SSAJccStatement(type: type, target: label) ]
+    }
+    else {
+        return [ SSAJmpStatement(target: label) ]
+    }
 }
 
 func PrologueStatements() -> [SSAStatement] {
