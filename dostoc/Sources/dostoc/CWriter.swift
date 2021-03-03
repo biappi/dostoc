@@ -40,6 +40,7 @@ func rewrite(_ statement: SSAStatement) -> String? {
     if let s = statement as? SSAVariableAssignmentStatement {
         return "\(s.name.cDeclaration) = \(rewrite(s.expression));"
     }
+    /*
     if let s = statement as? SSAMemoryAssignmentStatement {
         return "memory_write(\(s.name.cName), \(rewrite(s.expression)));"
     }
@@ -54,6 +55,7 @@ func rewrite(_ statement: SSAStatement) -> String? {
 
         return "memory_write(\(x), \(rewrite(s.expression)));"
     }
+ */
     if let s = statement as? SSAFlagsAssignmentStatement {
         return "\(s.name.cDeclaration) = flags(\(rewrite(s.expression)));"
     }
