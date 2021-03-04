@@ -54,7 +54,7 @@ extension ud_operand {
 
     var int64value: Int64 {
         return int64value(size: operandSize)
-    }
+    }    
 }
 
 enum OperandType {

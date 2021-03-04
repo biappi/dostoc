@@ -9,26 +9,26 @@ import Foundation
 import udis86
 
 struct SSAName: Hashable {
-    enum VariableType: Hashable {
+    enum Kind: Hashable {
         case string(String)
         case register(Register)
     }
-    
-    let type: VariableType
+        
+    let kind: Kind
     var index: Int?
     
     init(name: String) {
-        self.type = .string(name)
+        self.kind = .string(name)
         self.index = nil
     }
 
     init(register: Register) {
-        self.type = .register(register)
+        self.kind = .register(register)
         self.index = nil
     }
 
     var name: String {
-        switch type {
+        switch kind {
         case .string(let a):
             return a
             
@@ -65,9 +65,10 @@ struct SSAName: Hashable {
 /* - */
 
 protocol SSAExpression {
-    var dump: String { get }
     var variables: Set<SSAName> { get }
     mutating func rename(name: String, index: Int)
+    
+    var dump: String { get }
 }
 
 struct SSAVariableExpression: SSAExpression {
@@ -228,7 +229,10 @@ struct SSAVariableAssignmentStatement: SSAStatement {
 }
 
 struct SSAFlagsAssignmentStatement: SSAStatement {
-    var name = SSAName(name: "flags")
+    static let flagsName = SSAName(name: "flags")
+    
+    var name = SSAFlagsAssignmentStatement.flagsName
+    
     var expression: SSAExpression
     
     var dump: String { "\(name.dump) = flags(\(expression.dump))" }
@@ -272,7 +276,7 @@ struct SSAJmpStatement: SSAStatement, SSANoVariablesDefined, SSANoVariablesRefer
 struct SSAJccStatement: SSAStatement, SSANoVariablesDefined {
     let type: String
     let target: SSALabel
-    var flags = SSAName(name: "flags")
+    var flags = SSAFlagsAssignmentStatement.flagsName
     
     var dump: String { "\(type)(\(flags.dump)) \(target.target)" }
     
@@ -354,6 +358,24 @@ struct SSAMemoryReadStatement: SSAStatement {
     var dump: String {
         return "\(name.dump) = memory_read(\(address.dump))"
     }
+    
+    /*
+    var dump: String {
+        return "\(name.dump) = \(variant)(\(address.dump))"
+    }
+    
+    var size: Size {
+        name.size
+    }
+    
+    var variant: String {
+        switch size {
+        case .byte:  return "memory_write_8"
+        case .word:  return "memory_write_16"
+        case .dword: return "memory_write_32"
+        }
+    }
+     */
 }
 
 struct SSAMemoryWriteStatement: SSAStatement, SSANoVariablesDefined {
@@ -370,6 +392,24 @@ struct SSAMemoryWriteStatement: SSAStatement, SSANoVariablesDefined {
     var dump: String {
         return "memory_write(\(address.dump)) = \(expression.dump)"
     }
+    
+    /*
+     var dump: String {
+         return "\(variant)(\(address.dump)) = \(expression.dump)"
+     }
+     
+     var size: Size {
+         expression.size
+     }
+     
+     var variant: String {
+         switch size {
+         case .byte:  return "memory_write_8"
+         case .word:  return "memory_write_16"
+         case .dword: return "memory_write_32"
+         }
+     }
+     */
 }
 
 /* - */
@@ -403,22 +443,3 @@ struct SSAEpilogueStatement: SSAStatement, SSANoVariablesDefined {
 struct SSAEndStatement: SSAStatement, SSANoVariablesDefined, SSANoVariablesReferenced {
     var dump: String { "end" }
 }
-
-/* - */
-
-func SSASumExpression(lhs: SSAExpression, rhs: SSAExpression) -> SSABinaryOpExpression {
-    return SSABinaryOpExpression(op: .sum, lhs: lhs, rhs: rhs)
-}
-
-func SSADiffExpression(lhs: SSAExpression, rhs: SSAExpression) -> SSABinaryOpExpression {
-    return SSABinaryOpExpression(op: .diff, lhs: lhs, rhs: rhs)
-}
-
-func SSAMulExpression(lhs: SSAExpression, rhs: SSAExpression) -> SSABinaryOpExpression {
-    return SSABinaryOpExpression(op: .mul, lhs: lhs, rhs: rhs)
-}
-
-func SSAShiftRight(lhs: SSAExpression, rhs: SSAExpression) -> SSABinaryOpExpression {
-    return SSABinaryOpExpression(op: .shr, lhs: lhs, rhs: rhs)
-}
-

@@ -17,7 +17,7 @@ func rewrite(_ expression: SSAExpression) -> String {
     if let ex = expression as? SSABinaryOpExpression {
         return "\(rewrite(ex.lhs)) \(ex.op.rawValue) \(rewrite(ex.rhs))"
     }
-    if let ex = expression as? SSAVariableExpression {
+    if let ex = expression as? SSARegisterExpression {
         return "\(ex.name.cName)"
     }
     if let ex = expression as? SSAConstExpression {
