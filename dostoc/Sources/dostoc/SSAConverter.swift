@@ -455,13 +455,11 @@ extension SSABlock {
                     address: tempName,
                     expression: SSAVariableExpression(name: op0.registerName.ssa)
                 ),
-                SSAVariableAssignmentStatement(
-                    name: SSAName(register: .gpr(.sp, .low16)),
-                    expression: SSABinaryOpExpression(
-                        op: .diff,
-                        lhs: SSAVariableExpression(name: SSAName(register: .gpr(.sp, .low16))),
-                        rhs: SSAConstExpression(value: 2)
-                    )
+                SSABinaryOpStatement(
+                    result: Register.gpr(.sp, .low16).ssa,
+                    op: .diff,
+                    lhs: .gpr(.sp, .low16),
+                    rhs: Int(2)
                 )
             ]
             
@@ -470,13 +468,11 @@ extension SSABlock {
             let tempName = TempName(insn)
             
             return [
-                SSAVariableAssignmentStatement(
-                    name: SSAName(register: .gpr(.sp, .low16)),
-                    expression: SSABinaryOpExpression(
-                        op: .sum,
-                        lhs: SSAVariableExpression(name: SSAName(register: .gpr(.sp, .low16))),
-                        rhs: SSAConstExpression(value: 2)
-                    )
+                SSABinaryOpStatement(
+                    result: Register.gpr(.sp, .low16).ssa,
+                    op: .sum,
+                    lhs: .gpr(.sp, .low16),
+                    rhs: Int(2)
                 ),
                 SSAMemoryAddressResolver(
                     name: tempName,
@@ -588,13 +584,11 @@ extension SSABlock {
         case UD_Iadd:
             if op0.operandType == .reg && op1.operandType == .imm {
                 return [
-                    SSAVariableAssignmentStatement(
-                        name: op0.registerName.ssa,
-                        expression: SSABinaryOpExpression(
-                            op: .sum,
-                            lhs: SSAVariableExpression(name: op0.registerName.ssa),
-                            rhs: SSAConstExpression(value: Int(op1.uint64value))
-                        )
+                    SSABinaryOpStatement(
+                        result: op0.registerName.ssa,
+                        op: .sum,
+                        lhs: op0.registerName,
+                        rhs: Int(op1.uint64value)
                     )
                 ]
             }
@@ -613,25 +607,21 @@ extension SSABlock {
         case UD_Isub:
             if op0.operandType == .reg && op1.operandType == .imm {
                 return [
-                    SSAVariableAssignmentStatement(
-                        name: op0.registerName.ssa,
-                        expression: SSABinaryOpExpression(
-                            op: .diff,
-                            lhs: SSAVariableExpression(name: op0.registerName.ssa),
-                            rhs: SSAConstExpression(value: Int(op1.uint64value))
-                        )
+                    SSABinaryOpStatement(
+                        result: op0.registerName.ssa,
+                        op: .diff,
+                        lhs: op0.registerName,
+                        rhs: Int(op1.uint64value)
                     )
                 ]
             }
             else if op0.operandType == .reg && op1.operandType == .reg {
                 return [
-                    SSAVariableAssignmentStatement(
-                        name: op0.registerName.ssa,
-                        expression: SSABinaryOpExpression(
-                            op: .diff,
-                            lhs: SSAVariableExpression(name: op0.registerName.ssa),
-                            rhs: SSAVariableExpression(name: op1.registerName.ssa)
-                        )
+                    SSABinaryOpStatement(
+                        result: op0.registerName.ssa,
+                        op: .diff,
+                        lhs: op0.registerName,
+                        rhs: op1.registerName
                     ),
                     SSAFlagsAssignmentStatement(
                         expression: SSAVariableExpression(name: op0.registerName.ssa)
@@ -645,25 +635,21 @@ extension SSABlock {
         case UD_Imul:
             if op0.operandType == .reg && op1.operandType == .reg {
                 return [
-                    SSAVariableAssignmentStatement(
-                        name: op0.registerName.ssa,
-                        expression: SSABinaryOpExpression(
-                            op: .mul,
-                            lhs: SSAVariableExpression(name: op0.registerName.ssa),
-                            rhs: SSAVariableExpression(name: op1.registerName.ssa)
-                        )
+                    SSABinaryOpStatement(
+                        result: op0.registerName.ssa,
+                        op: .mul,
+                        lhs: op0.registerName,
+                        rhs: op1.registerName
                     )
                 ]
             }
             else if op0.operandType == .reg && op1.operandType == nil {
                 return [
-                    SSAVariableAssignmentStatement(
-                        name: SSAName(register: .gpr(.ax, .low16)),
-                        expression: SSABinaryOpExpression(
-                            op: .mul,
-                            lhs: SSAVariableExpression(name: op0.registerName.ssa),
-                            rhs: SSAVariableExpression(name: SSAName(register: .gpr(.ax, .low16)))
-                        )
+                    SSABinaryOpStatement(
+                        result: Register.gpr(.ax, .low16).ssa,
+                        op: .mul,
+                        lhs: op0.registerName,
+                        rhs: .gpr(.ax, .low16)
                     )
                 ]
             }
@@ -676,13 +662,11 @@ extension SSABlock {
             assert(op1.operandType == .const)
             
             return [
-                SSAVariableAssignmentStatement(
-                    name: op0.registerName.ssa,
-                    expression: SSABinaryOpExpression(
-                        op: .shr,
-                        lhs: SSAVariableExpression(name: op0.registerName.ssa),
-                        rhs: SSAConstExpression(value: Int(op1.uint64value))
-                    )
+                SSABinaryOpStatement(
+                    result: op0.registerName.ssa,
+                    op: .shr,
+                    lhs: op0.registerName,
+                    rhs: Int(op1.uint64value)
                 )
             ]
             
@@ -691,13 +675,11 @@ extension SSABlock {
             assert(op1.operandType == .const)
             
             return [
-                SSAVariableAssignmentStatement(
-                    name: op0.registerName.ssa,
-                    expression: SSABinaryOpExpression(
-                        op: .shl,
-                        lhs: SSAVariableExpression(name: op0.registerName.ssa),
-                        rhs: SSAConstExpression(value: Int(op1.uint64value))
-                    )
+                SSABinaryOpStatement(
+                    result: op0.registerName.ssa,
+                    op: .shl,
+                    lhs: op0.registerName,
+                    rhs: Int(op1.uint64value)
                 )
             ]
 
@@ -705,13 +687,11 @@ extension SSABlock {
             assert(op0.operandType == .reg)
             
             return [
-                SSAVariableAssignmentStatement(
-                    name: op0.registerName.ssa,
-                    expression: SSABinaryOpExpression(
-                        op: .sum,
-                        lhs: SSAVariableExpression(name: op0.registerName.ssa),
-                        rhs: SSAConstExpression(value: 1)
-                    )
+                SSABinaryOpStatement(
+                    result: op0.registerName.ssa,
+                    op: .sum,
+                    lhs: op0.registerName,
+                    rhs: Int(1)
                 )
             ]
 
@@ -719,13 +699,11 @@ extension SSABlock {
             assert(op0.operandType == .reg)
             
             return [
-                SSAVariableAssignmentStatement(
-                    name: op0.registerName.ssa,
-                    expression: SSABinaryOpExpression(
-                        op: .diff,
-                        lhs: SSAVariableExpression(name: op0.registerName.ssa),
-                        rhs: SSAConstExpression(value: 1)
-                    )
+                SSABinaryOpStatement(
+                    result: op0.registerName.ssa,
+                    op: .diff,
+                    lhs: op0.registerName,
+                    rhs: Int(1)
                 ),
                 SSAFlagsAssignmentStatement(
                     expression: SSAVariableExpression(name: op0.registerName.ssa)
@@ -737,13 +715,11 @@ extension SSABlock {
             assert(op1.operandType == .imm)
 
             return [
-                SSAVariableAssignmentStatement(
-                    name: op0.registerName.ssa,
-                    expression: SSABinaryOpExpression(
-                        op: .and,
-                        lhs: SSAVariableExpression(name: op0.registerName.ssa),
-                        rhs: SSAConstExpression(value: Int(op1.uint64value))
-                    )
+                SSABinaryOpStatement(
+                    result: op0.registerName.ssa,
+                    op: .and,
+                    lhs: op0.registerName,
+                    rhs: Int(op1.uint64value)
                 )
             ]
         
@@ -756,13 +732,11 @@ extension SSABlock {
             )
             
             return [
-                SSAVariableAssignmentStatement(
-                    name: SSAName(register: .gpr(.cx, .low16)),
-                    expression: SSABinaryOpExpression(
-                        op: .diff,
-                        lhs: SSAVariableExpression(name: SSAName(register: .gpr(.cx, .low16))),
-                        rhs: SSAConstExpression(value: 1)
-                    )
+                SSABinaryOpStatement(
+                    result: Register.gpr(.cx, .low16).ssa,
+                    op: .diff,
+                    lhs: .gpr(.cx, .low16),
+                    rhs: Int(1)
                 ),
                 SSAFlagsAssignmentStatement(
                     expression: SSAVariableExpression(name: SSAName(register: .gpr(.cx, .low16)))
@@ -808,23 +782,30 @@ extension SSABlock {
                         name: tempName,
                         address: address
                     ),
+                    SSABinaryOpStatement(
+                        result: tempName,
+                        op: .diff,
+                        lhs: tempName,
+                        rhs: Int(op1.int64value)
+                    ),
                     SSAFlagsAssignmentStatement(
-                        expression: SSABinaryOpExpression(
-                            op: .diff,
-                            lhs: SSAVariableExpression(name: tempName),
-                            rhs: SSAConstExpression(value: Int(op1.int64value))
-                        )
+                        expression: SSAVariableExpression(name: tempName)
                     )
                 ]
             }
             if op0.operandType == .reg && op1.operandType == .imm {
+                let tempName = TempName(insn)
+                
                 return [
+                    SSABinaryOpStatement(
+                        result: tempName,
+                        op: .diff,
+                        lhs: op0.registerName,
+                        rhs: Int(op1.int64value)
+                    ),
+
                     SSAFlagsAssignmentStatement(
-                        expression: SSABinaryOpExpression(
-                            op: .diff,
-                            lhs: SSAVariableExpression(name: op0.registerName.ssa),
-                            rhs: SSAConstExpression(value: Int(op1.int64value))
-                        )
+                        expression: SSAVariableExpression(name: tempName)
                     )
                 ]
             }

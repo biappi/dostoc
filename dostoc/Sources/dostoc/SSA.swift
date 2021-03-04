@@ -81,23 +81,6 @@ struct SSAVariableExpression: SSAExpression {
     }
 }
 
-struct SSARegisterExpression: SSAExpression {
-    var name: SSAName
-    let register: Register
-
-    var dump: String { name.dump }
-    var variables: Set<SSAName> { [name] }
-
-    init(_ register: Register) {
-        self.register = register
-        self.name = SSAName(register: register)
-    }
-    
-    mutating func rename(name: String, index: Int) {
-        self.name.reindex(name: name, index: index)
-    }
-}
-
 struct SSAConstExpression: SSAExpression {
     let value: Int
     var dump: String { String(format: "%x", value) }
@@ -106,33 +89,6 @@ struct SSAConstExpression: SSAExpression {
     mutating func rename(name: String, index: Int) { }
 }
 
-struct SSABinaryOpExpression: SSAExpression {
-    enum Operation: String {
-        case sum  = "+"
-        case diff = "-"
-        case mul  = "*"
-        case shr  = ">>"
-        case shl  = "<<"
-        case and  = "&&"
-    }
-    
-    let op:  Operation
-    var lhs: SSAExpression
-    var rhs: SSAExpression
-    
-    var dump: String {
-        "\(lhs.dump) \(op.rawValue) \(rhs.dump)"
-    }
-    
-    var variables: Set<SSAName> {
-        return lhs.variables.union(rhs.variables)
-    }
-    
-    mutating func rename(name: String, index: Int) {
-        lhs.rename(name: name, index: index)
-        rhs.rename(name: name, index: index)
-    }
-}
 
 /* - */
 
@@ -252,6 +208,99 @@ struct SSAFlagsAssignmentStatement: SSAStatement {
     mutating func renameReferencedVariables(name: String, index: Int) {
         expression.rename(name: name, index: index)
     }
+}
+
+struct SSABinaryOpStatement : SSAStatement {
+    enum Operation: String {
+        case sum  = "+"
+        case diff = "-"
+        case mul  = "*"
+        case shr  = ">>"
+        case shl  = "<<"
+        case and  = "&&"
+    }
+
+    enum Operand {
+        case reg(Register)
+        case name
+        case int(Int)
+    }
+    
+    var result: SSAName
+    let op: Operation
+    
+    let lhs: Operand
+    let rhs: Operand
+    
+    var lhsName: SSAName?
+    var rhsName: SSAName?
+    
+    init(result: SSAName, op: Operation, lhs: Register, rhs: Int) {
+        self.result = result
+        self.op = op
+        self.lhs = .reg(lhs)
+        self.lhsName = SSAName(register: lhs)
+        self.rhs = .int(rhs)
+        self.rhsName = nil
+    }
+    
+    init(result: SSAName, op: Operation, lhs: Register, rhs: Register) {
+        self.result = result
+        self.op = op
+        self.lhs = .reg(lhs)
+        self.lhsName = SSAName(register: lhs)
+        self.rhs = .reg(rhs)
+        self.rhsName = SSAName(register: rhs)
+    }
+    
+    init(result: SSAName, op: Operation, lhs: SSAName, rhs: Int) {
+        self.result = result
+        self.op = op
+        self.lhs = .name
+        self.lhsName = lhs
+        self.rhs = .int(rhs)
+        self.rhsName = nil
+    }
+
+    var dump: String {
+        let lhsDump: String
+        let rhsDump: String
+        
+        if case .int(let i) = lhs {
+            lhsDump = String(format: "%x", i)
+        }
+        else {
+            lhsDump = lhsName?.dump ?? "[DIOCAN]"
+        }
+
+        if case .int(let i) = rhs {
+            rhsDump = String(format: "%x", i)
+        }
+        else {
+            rhsDump = rhsName?.dump ?? "[DIOCAN]"
+        }
+
+        return "\(result.dump) = \(lhsDump) \(op.rawValue) \(rhsDump)"
+    }
+    
+    var variablesDefined: Set<SSAName> { [result] }
+        
+    mutating func renameDefinedVariables(name: String, index: Int) {
+        result.reindex(name: name, index: index)
+    }
+    
+    var variablesReferenced: Set<SSAName> {
+        var v = Set<SSAName>()
+        _ = lhsName.map { v.insert($0) }
+        _ = rhsName.map { v.insert($0) }
+        return v
+    }
+
+    mutating func renameReferencedVariables(name: String, index: Int) {
+        lhsName?.reindex(name: name, index: index)
+        rhsName?.reindex(name: name, index: index)
+    }
+
 }
 
 struct SSALabel {

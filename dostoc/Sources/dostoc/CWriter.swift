@@ -14,12 +14,15 @@ extension SSAName {
 }
 
 func rewrite(_ expression: SSAExpression) -> String {
+    /*
     if let ex = expression as? SSABinaryOpExpression {
         return "\(rewrite(ex.lhs)) \(ex.op.rawValue) \(rewrite(ex.rhs))"
     }
     if let ex = expression as? SSARegisterExpression {
         return "\(ex.name.cName)"
     }
+     */
+
     if let ex = expression as? SSAConstExpression {
         return String(format: "0x%x", ex.value);
     }
