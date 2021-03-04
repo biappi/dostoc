@@ -46,7 +46,7 @@ enum Register: Hashable {
         case di
     }
     
-    enum Size: Hashable {
+    enum Part: Hashable {
         case low8
         case high8
         case low16
@@ -62,7 +62,7 @@ enum Register: Hashable {
         }
     }
     
-    case gpr(GeneralPurpose, Size)
+    case gpr(GeneralPurpose, Part)
     case segment(Segment)
 }
 
@@ -129,14 +129,14 @@ extension Register : CustomStringConvertible {
         case .gpr(let gp, let s):
             switch (gp, s) {
             case (.ax, .low8):    return "al"
-            case (.cx, .low8):    return "al"
-            case (.dx, .low8):    return "al"
-            case (.bx, .low8):    return "al"
+            case (.cx, .low8):    return "cl"
+            case (.dx, .low8):    return "dl"
+            case (.bx, .low8):    return "bl"
 
             case (.ax, .high8):   return "ah"
-            case (.cx, .high8):   return "ah"
-            case (.dx, .high8):   return "ah"
-            case (.bx, .high8):   return "ah"
+            case (.cx, .high8):   return "ch"
+            case (.dx, .high8):   return "dh"
+            case (.bx, .high8):   return "bh"
                 
             case (.sp, .low8):    return "spl"
             case (.bp, .low8):    return "bpl"

@@ -33,23 +33,10 @@ struct SSAName: Hashable {
             return a
             
         case .register(let r):
-//            return r.description
-            switch r {
-            case .gpr(let r, _): return "\(r)"
-            case .segment(let s): return "\(s)"
-            }
+            return r.description
         }
     }
-    
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(dump)
-        hasher.combine(index)
-    }
-
-    static func ==(lhs: SSAName, rhs: SSAName) -> Bool {
-        return (lhs.name == rhs.name) && (lhs.index == rhs.index)
-    }
-    
+        
     var dump: String {
         if let i = index { return "\(name)_\(i)" }
         else { return name }
@@ -195,7 +182,7 @@ struct SSAFlagsAssignmentStatement: SSAStatement {
     }
 }
 
-struct SSABinaryOpStatement : SSAStatement {
+struct SSABinaryOpStatement: SSAStatement {
     enum Operation: String {
         case sum  = "+"
         case diff = "-"
@@ -288,6 +275,50 @@ struct SSABinaryOpStatement : SSAStatement {
 
 }
 
+struct SSARegisterSplit16to8Statement: SSAStatement {
+    var name: SSAName
+    var other: SSAName
+
+    var dump: String {
+        return "\(name.dump) = conversion16to8(\(other.dump))"
+    }
+    
+    var variablesDefined: Set<SSAName> { [name] }
+    
+    var variablesReferenced: Set<SSAName> { [other] }
+    
+    mutating func renameDefinedVariables(name: String, index: Int) {
+        self.name.reindex(name: name, index: index)
+    }
+    
+    mutating func renameReferencedVariables(name: String, index: Int) {
+        self.other.reindex(name: name, index: index)
+    }
+}
+
+struct SSARegisterJoin8to16Statement: SSAStatement {
+    var name: SSAName
+    var otherLow: SSAName
+    var otherHigh: SSAName
+
+    var dump: String {
+        return "\(name.dump) = conversion8to16(\(otherHigh.dump), \(otherLow.dump))"
+    }
+    
+    var variablesDefined: Set<SSAName> { [name] }
+    
+    var variablesReferenced: Set<SSAName> { [otherLow, otherHigh] }
+    
+    mutating func renameDefinedVariables(name: String, index: Int) {
+        self.name.reindex(name: name, index: index)
+    }
+    
+    mutating func renameReferencedVariables(name: String, index: Int) {
+        self.otherLow.reindex(name: name, index: index)
+        self.otherHigh.reindex(name: name, index: index)
+    }
+}
+
 /* - */
 
 struct SSALabel {
@@ -331,6 +362,20 @@ struct SSAIntStatement: SSAStatement, SSANoVariablesDefined, SSANoVariablesRefer
 struct SSACallStatement: SSAStatement, SSANoVariablesDefined, SSANoVariablesReferenced {
     let target: SSALabel
     var dump: String { "call(\(target.target))" }
+}
+
+struct SSAOutStatement: SSAStatement, SSANoVariablesDefined {
+    var port: SSAName
+    var data: SSAName
+    
+    var dump: String { "out(\(port.dump), \(data.dump))" }
+    
+    var variablesReferenced: Set<SSAName> { [port, data] }
+    
+    mutating func renameReferencedVariables(name: String, index: Int) {
+        port.reindex(name: name, index: index)
+        data.reindex(name: name, index: index)
+    }
 }
 
 /* - */

@@ -74,7 +74,7 @@ struct SSABlock {
                 if stmt as? SSAPrologueStatement != nil {
                     continue
                 }
-                
+
                 if stmt as? SSAEpilogueStatement != nil {
                     continue
                 }
@@ -413,6 +413,98 @@ struct Converter {
         }
     }
         
+    mutating func registersSizes() {
+        struct Conversion {
+            let index: StatementIndex
+            let name: Register.GeneralPurpose
+            let kind: Kind
+            
+            enum Kind {
+                case wordToBytes
+                case bytesToWord
+            }
+        }
+        
+        for (block, _) in ssaGraph.ssaBlocks {
+            var lastSizeForRegister = [Register.GeneralPurpose : Int]()
+            var conversions = [Conversion]()
+            
+            ssaGraph.forEachSSAStatementIndex(in: block) { idx in
+                let stmt = ssaGraph.statementFor(idx)
+                
+                for variable in stmt.variablesReferenced {
+                    if case .register(let r) = variable.kind,
+                       case .gpr(let name, let part) = r
+                    {
+                        if let lastSize = lastSizeForRegister[name],
+                           lastSize != part.byteSize
+                        {
+                            if lastSize == 2 {
+                                print("  conversion \(name) '")
+                                conversions.append(
+                                    Conversion(
+                                        index: idx,
+                                        name: name,
+                                        kind: .wordToBytes
+                                    )
+                                )
+                            }
+                            else if lastSize == 1 {
+                                conversions.append(
+                                    Conversion(
+                                        index: idx,
+                                        name: name,
+                                        kind: .bytesToWord
+                                    )
+                                )
+                            }
+                        }
+                        
+                        lastSizeForRegister[name] = part.byteSize
+                    }
+                }
+                
+                for variable in stmt.variablesDefined {
+                    if case .register(let r) = variable.kind,
+                       case .gpr(let name, let part) = r
+                    {
+                        lastSizeForRegister[name] = part.byteSize
+                    }
+                }
+            }
+            
+            for conversion in conversions.reversed() {
+                if case .stmt(let blockId, let insn, _) = conversion.index {
+                    switch conversion.kind {
+                    
+                    case .wordToBytes:
+                        let convLow = SSARegisterSplit16to8Statement(
+                            name: Register.gpr(conversion.name, .low8).ssa,
+                            other: Register.gpr(conversion.name, .low16).ssa
+                        )
+                        
+                        let convHigh = SSARegisterSplit16to8Statement(
+                            name: Register.gpr(conversion.name, .high8).ssa,
+                            other: Register.gpr(conversion.name, .low16).ssa
+                        )
+                        
+                        ssaGraph.ssaBlocks[blockId]!.statements.insert((nil, [convLow]), at: insn)
+                        ssaGraph.ssaBlocks[blockId]!.statements.insert((nil, [convHigh]), at: insn)
+                        
+                    case .bytesToWord:
+                        let conv = SSARegisterJoin8to16Statement(
+                            name: Register.gpr(conversion.name, .low16).ssa,
+                            otherLow: Register.gpr(conversion.name, .low8).ssa,
+                            otherHigh: Register.gpr(conversion.name, .high8).ssa
+                        )
+                        
+                        ssaGraph.ssaBlocks[blockId]!.statements.insert((nil, [conv]), at: insn)
+                    }
+                }
+            }
+        }
+    }
+    
     init(cfg: CFGGraph) {
         self.cfg = cfg
         ssaGraph = SSAGraph(from: cfg)
@@ -422,6 +514,7 @@ struct Converter {
     
     mutating func convert() {
         placePhis()
+        registersSizes()
         rename()
         deadCodeElimination()
         
@@ -821,6 +914,36 @@ extension SSABlock {
                 fatalError()
             }
 
+        case UD_Iout:
+            assert(op0.operandType == .reg)
+            assert(op1.operandType == .reg)
+            
+            return [
+                SSAOutStatement(
+                    port: op0.registerName.ssa,
+                    data: op1.registerName.ssa
+                )
+            ]
+            
+        case UD_Ixchg:
+            assert(op0.operandType == .reg)
+            assert(op1.operandType == .reg)
+            
+            let temp = temper("val")
+            return [
+                SSAVariableAssignmentStatement(
+                    name: temp,
+                    value: op0.registerName.ssa
+                ),
+                SSAVariableAssignmentStatement(
+                    name: op0.registerName.ssa,
+                    value: op1.registerName.ssa
+                ),
+                SSAVariableAssignmentStatement(
+                    name: op1.registerName.ssa,
+                    value: temp
+                ),
+            ]
             
         default:
             fatalError()
