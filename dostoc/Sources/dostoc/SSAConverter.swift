@@ -430,12 +430,15 @@ struct Converter {
 }
 
 extension SSABlock {
+    static var temper_i = 0
+    
     mutating func convert(insn: Instruction) -> [SSAStatement] {
         let op0 = insn.operands.0
         let op1 = insn.operands.1
-
-        func TempName(_ insn: Instruction, _ x: Int? = nil) -> SSAName {
-            return SSAName(name: "T_\(x.map {  "\($0)_"} ?? "")\(insn.offset.hexString)")
+        
+        let temper = { (n: String) -> SSAName in
+            SSABlock.temper_i += 1
+            return SSAName(name: "T\(SSABlock.temper_i)_\(n)")
         }
         
         print(insn.asm)
@@ -444,7 +447,7 @@ extension SSABlock {
         
         case UD_Ipush:
             assert(op0.operandType == .reg)
-            let tempName = TempName(insn)
+            let tempName = temper("addr")
             
             return [
                 SSAMemoryAddressResolver(
@@ -453,7 +456,7 @@ extension SSABlock {
                 ),
                 SSAMemoryWriteStatement(
                     address: tempName,
-                    expression: SSAVariableExpression(name: op0.registerName.ssa)
+                    value: op0.registerName.ssa
                 ),
                 SSABinaryOpStatement(
                     result: Register.gpr(.sp, .low16).ssa,
@@ -465,7 +468,7 @@ extension SSABlock {
             
         case UD_Ipop:
             assert(op0.operandType == .reg)
-            let tempName = TempName(insn)
+            let tempName = temper("addr")
             
             return [
                 SSABinaryOpStatement(
@@ -489,13 +492,13 @@ extension SSABlock {
                 return [
                     SSAVariableAssignmentStatement(
                         name: op0.registerName.ssa,
-                        expression: SSAVariableExpression(name: op1.registerName.ssa)
+                        value: op1.registerName.ssa
                     )
                 ]
             }
             else if op0.operandType == .reg && op1.operandType == .mem {
                 print(op0.size, op1.size)
-                let tempName = TempName(insn)
+                let tempName = temper("addr")
                 
                 return [
                     SSAMemoryAddressResolver(
@@ -511,15 +514,15 @@ extension SSABlock {
             }
             else if op0.operandType == .reg && op1.operandType == .imm {
                 return [
-                    SSAVariableAssignmentStatement(
+                    SSAConstAssignmentStatement(
                         name: op0.registerName.ssa,
-                        expression: SSAConstExpression(value: Int(op1.uint64value))
+                        const: Int(op1.uint64value)
                     )
                 ]
             }
             else if op0.operandType == .mem && op1.operandType == .reg {
                 print(op0.size, op1.size)
-                let tempName = TempName(insn)
+                let tempName = temper("addr")
                 
                 return [
                     SSAMemoryAddressResolver(
@@ -528,23 +531,28 @@ extension SSABlock {
                     ),
                     SSAMemoryWriteStatement(
                         address: tempName,
-                        expression: SSAVariableExpression(name: op1.registerName.ssa)
+                        value: op1.registerName.ssa
                     )
                 ]
             }
             else if op0.operandType == .mem && op1.operandType == .imm {
                 print(op0.size, op1.size)
 
-                let tempName = TempName(insn)
+                let address = temper("addr")
+                let val = temper("val")
                 
                 return [
+                    SSAConstAssignmentStatement(
+                        name: val,
+                        const: Int(op1.uint64value)
+                    ),
                     SSAMemoryAddressResolver(
-                        name: tempName,
+                        name: address,
                         addressing: Addressing(insn, op0)
                     ),
                     SSAMemoryWriteStatement(
-                        address: tempName,
-                        expression: SSAConstExpression(value: Int(op1.uint64value))
+                        address: address,
+                        value: val
                     )
                 ]
             }
@@ -596,7 +604,7 @@ extension SSABlock {
                 return [
                    SSAVariableAssignmentStatement(
                        name: op0.registerName.ssa,
-                       expression: SSAVariableExpression(name: op0.registerName.ssa)
+                       value: op0.registerName.ssa
                    )
                ]
             }
@@ -624,7 +632,7 @@ extension SSABlock {
                         rhs: op1.registerName
                     ),
                     SSAFlagsAssignmentStatement(
-                        expression: SSAVariableExpression(name: op0.registerName.ssa)
+                        value: op0.registerName.ssa
                     )
                 ]
             }
@@ -706,7 +714,7 @@ extension SSABlock {
                     rhs: Int(1)
                 ),
                 SSAFlagsAssignmentStatement(
-                    expression: SSAVariableExpression(name: op0.registerName.ssa)
+                    value: op0.registerName.ssa
                 )
             ]
 
@@ -739,7 +747,7 @@ extension SSABlock {
                     rhs: Int(1)
                 ),
                 SSAFlagsAssignmentStatement(
-                    expression: SSAVariableExpression(name: SSAName(register: .gpr(.cx, .low16)))
+                    value: Register.gpr(.cx, .low16).ssa
                 ),
                 SSAJccStatement(type: "loop", target: label)
             ]
@@ -770,8 +778,8 @@ extension SSABlock {
             
         case UD_Icmp:
             if op0.operandType == .mem && op1.operandType == .imm {
-                let address = TempName(insn)
-                let tempName = TempName(insn, 1)
+                let address = temper("addr")
+                let tempName = temper("val")
 
                 return [
                     SSAMemoryAddressResolver(
@@ -789,12 +797,12 @@ extension SSABlock {
                         rhs: Int(op1.int64value)
                     ),
                     SSAFlagsAssignmentStatement(
-                        expression: SSAVariableExpression(name: tempName)
+                        value: tempName
                     )
                 ]
             }
             if op0.operandType == .reg && op1.operandType == .imm {
-                let tempName = TempName(insn)
+                let tempName = temper("val")
                 
                 return [
                     SSABinaryOpStatement(
@@ -805,7 +813,7 @@ extension SSABlock {
                     ),
 
                     SSAFlagsAssignmentStatement(
-                        expression: SSAVariableExpression(name: tempName)
+                        value: tempName
                     )
                 ]
             }

@@ -13,27 +13,9 @@ extension SSAName {
     var cDeclaration: String { "\(cType) \(cName)" }
 }
 
-func rewrite(_ expression: SSAExpression) -> String {
-    /*
-    if let ex = expression as? SSABinaryOpExpression {
-        return "\(rewrite(ex.lhs)) \(ex.op.rawValue) \(rewrite(ex.rhs))"
-    }
-    if let ex = expression as? SSARegisterExpression {
-        return "\(ex.name.cName)"
-    }
-     */
-
-    if let ex = expression as? SSAConstExpression {
-        return String(format: "0x%x", ex.value);
-    }
-    else {
-        fatalError("\(expression)")
-    }
-}
-
 func rewrite(_ statement: SSAStatement) -> String? {
     if let s = statement as? SSAVariableAssignmentStatement {
-        return "\(s.name.cDeclaration) = \(rewrite(s.expression));"
+        return "\(s.name.cDeclaration) = \(s.value.cName);"
     }
     if let s = statement as? SSAMemoryAddressResolver {
         switch s.addressing {
@@ -50,13 +32,13 @@ func rewrite(_ statement: SSAStatement) -> String? {
         }
     }
     if let s = statement as? SSAMemoryWriteStatement {
-        return "memory_write(\(s.address.cName), \(rewrite(s.expression)));"
+        return "memory_write(\(s.address.cName), \(s.value.cName));"
     }
     if let s = statement as? SSAMemoryReadStatement {
         return "\(s.name.cDeclaration) = memory_read(\(s.address.cName));"
     }
     if let s = statement as? SSAFlagsAssignmentStatement {
-        return "\(s.name.cDeclaration) = flags(\(rewrite(s.expression)));"
+        return "\(s.name.cDeclaration) = flags(\(s.value.cName));"
     }
     if let s = statement as? SSAJccStatement {
         return "if (FLAGS(\"\(s.type)\", \(s.flags.cName)))\n\t\tgoto \(s.target.target);"
