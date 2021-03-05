@@ -26,26 +26,11 @@ struct CFGBlock {
     mutating func add(instruction: Instruction) {
         instructions.append(instruction)
     }
-    
-//    var startInstruction: Instruction {
-//        return instructions.first!
-//    }
-//
-//    var endInstruction: Instruction {
-//        return instructions.last!
-//    }
-//
-//    var start: UInt64 {
-//        startInstruction.offset
-//    }
-//
-//    var end: [UInt64] {
-//        endInstruction.branches.asList
-//    }
 }
 
 struct CFGGraph: Graph {
     let start:  UInt64
+    let nonSynteticStart:  UInt64
     let blocks: [UInt64 : CFGBlock]
     
     let successors:   [UInt64 : [UInt64]]
@@ -96,6 +81,7 @@ struct CFGGraph: Graph {
         predecessors[xrefAnalisys.start, default: []].append(entryBlock.start)
 
         self.start = entryBlock.start
+        self.nonSynteticStart = xrefAnalisys.start
         self.blocks = blocks
         self.predecessors = predecessors
         self.successors = successors
