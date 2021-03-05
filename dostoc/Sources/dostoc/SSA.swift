@@ -163,6 +163,10 @@ struct SSAFlagsAssignmentStatement: SSAStatement {
     
     var value: SSAName
     
+    init(value: SSAName) {
+        self.value = value
+    }
+    
     var dump: String { "\(name.dump) = flags(\(value.dump))" }
     
     var variablesDefined: Set<SSAName> {
@@ -189,8 +193,12 @@ struct SSABinaryOpStatement: SSAStatement {
         case mul  = "*"
         case shr  = ">>"
         case shl  = "<<"
+        case ror  = "(ror)"
+        case rol  = "(rol)"
+
         case and  = "&"
         case or   = "|"
+        case xor  = "^"
     }
 
     enum Operand {
@@ -226,6 +234,15 @@ struct SSABinaryOpStatement: SSAStatement {
         self.rhsName = SSAName(register: rhs)
     }
     
+    init(result: SSAName, op: Operation, lhs: Register, rhs: SSAName) {
+        self.result = result
+        self.op = op
+        self.lhs = .reg(lhs)
+        self.lhsName = SSAName(register: lhs)
+        self.rhs = .name
+        self.rhsName = rhs
+    }
+
     init(result: SSAName, op: Operation, lhs: SSAName, rhs: Int) {
         self.result = result
         self.op = op
@@ -233,6 +250,15 @@ struct SSABinaryOpStatement: SSAStatement {
         self.lhsName = lhs
         self.rhs = .int(rhs)
         self.rhsName = nil
+    }
+
+    init(result: SSAName, op: Operation, lhs: SSAName, rhs: Register) {
+        self.result = result
+        self.op = op
+        self.lhs = .name
+        self.lhsName = lhs
+        self.rhs = .reg(rhs)
+        self.rhsName = SSAName(register: rhs)
     }
 
     var dump: String {
@@ -358,6 +384,14 @@ struct SSAJccStatement: SSAStatement, SSANoVariablesDefined {
 struct SSAIntStatement: SSAStatement, SSANoVariablesDefined, SSANoVariablesReferenced {
     let interrupt: Int
     var dump: String { String(format: "int(%x)", interrupt) }
+}
+
+struct SSACliStatement: SSAStatement, SSANoVariablesDefined, SSANoVariablesReferenced {
+    var dump: String { "cli" }
+}
+
+struct SSAStiStatement: SSAStatement, SSANoVariablesDefined, SSANoVariablesReferenced {
+    var dump: String { "sti" }
 }
 
 struct SSACallStatement: SSAStatement, SSANoVariablesDefined, SSANoVariablesReferenced {

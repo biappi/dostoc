@@ -16,6 +16,15 @@ struct Instruction {
     
     let offset: UInt64
     let asm: String
+    
+    var op0addressing: Addressing {
+        Addressing(self, operands.0)
+    }
+
+    var op1addressing: Addressing {
+        Addressing(self, operands.1)
+    }
+
 }
 
 class UDis86 {

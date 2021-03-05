@@ -96,10 +96,22 @@ enum FlowType {
 }
 
 enum InstructionBranches {
+    enum CallTarget {
+        case imm(UInt64)
+        case mem(Addressing)
+        
+        var hexString: String {
+            switch self {
+            case .imm(let x): return x.hexString
+            case .mem(let x): return "\(x)"
+            }
+        }
+    }
+    
     case none
-    case jmp(target: UInt64)
-    case jcc(next: UInt64, target: UInt64)
-    case call(next: UInt64, target: UInt64)
+    case jmp(target: CallTarget)
+    case jcc(next: UInt64, target: CallTarget)
+    case call(next: UInt64, target: CallTarget)
     case seq(next: UInt64)
     
     var string: String {
@@ -123,11 +135,15 @@ enum InstructionBranches {
     
     var asList: [UInt64] {
         switch self {
-        case .none:                             return []
-        case .jmp (             target: let t): return [t]
-        case .jcc (next: let n, target: let t): return [n, t]
-        case .call(next: let n, target: _    ): return [n]
-        case .seq (next: let n               ): return [n]
+        case .none:                                   return []
+        case .call(next: let n, target: _    ):       return [n]
+        case .seq (next: let n               ):       return [n]
+            
+        case .jmp (             target: .imm(let t)): return [t]
+        case .jmp (             target: .mem(_    )): return []
+            
+        case .jcc (next: let n, target: .imm(let t)): return [n, t]
+        case .jcc (next: let n, target: .mem(_    )): return [n]
         }
     }
 }
@@ -138,7 +154,7 @@ extension Instruction {
     }
     
     var branches: InstructionBranches {
-        let next_target = { () -> UInt64 in
+        let next_target = { () -> InstructionBranches.CallTarget in
             
             switch operands.0.type {
             case UD_OP_JIMM: fallthrough
@@ -148,20 +164,20 @@ extension Instruction {
                     let val = operands.0.lval.sbyte
                     
                     if val > 0 {
-                        return pc + UInt64(val)
+                        return .imm(pc + UInt64(val))
                     }
                     else {
-                        return pc - UInt64(-val)
+                        return .imm(pc - UInt64(-val))
                     }
 
                 case 16:
                     let val = operands.0.lval.sword
                     
                     if val > 0 {
-                        return pc + UInt64(val)
+                        return .imm(pc + UInt64(val))
                     }
                     else {
-                        return pc - UInt64(-val)
+                        return .imm(pc - UInt64(-val))
                     }
                     
                 default:
@@ -169,16 +185,16 @@ extension Instruction {
                 }
                 
             case UD_OP_PTR:
-                return UInt64(operands.0.lval.ptr.seg << 4) + UInt64(operands.0.lval.ptr.off)
+                return .imm(UInt64(operands.0.lval.ptr.seg << 4) + UInt64(operands.0.lval.ptr.off))
                 
             case UD_OP_MEM:
-                assertionFailure("mem")
+                return .mem(op0addressing)
                 
             default:
                 assertionFailure("AIEE")
             }
             
-            return 0
+            fatalError()
         }
         
         switch flowType {

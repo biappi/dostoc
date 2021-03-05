@@ -28,24 +28,17 @@ func XrefAnalisys(at address: UInt64, using dis: UDis86) -> InstructionXrefs {
         let i = dis.disassemble(addr: addr)!
         insns[addr] = i
         
+        nextAddresses.append(contentsOf: i.branches.asList)
+        
         switch i.branches {
-        case .none:
+        case .jmp(.imm(let target)):
+            xrefs[target, default: []].append(addr)
+            
+        case .jcc(_, .imm(let target)):
+            xrefs[target, default: []].append(addr)
+
+        default:
             break
-            
-        case .jmp(target: let target):
-            nextAddresses.append(target)
-            xrefs[target, default: []].append(addr)
-            
-        case .jcc(next: let next, target: let target):
-            nextAddresses.append(next)
-            nextAddresses.append(target)
-            xrefs[target, default: []].append(addr)
-            
-        case .call(next: let next, target: _):
-            nextAddresses.append(next)
-            
-        case .seq(next: let next):
-            nextAddresses.append(next)
         }
     }
     

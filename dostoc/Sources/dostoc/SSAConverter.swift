@@ -43,6 +43,7 @@ struct SSABlock {
     
     func dump(deleted: Set<StatementIndex>, blockId: UInt64) {
         let tabled = true
+        let showDead = true
         
         let width = 50
         
@@ -64,6 +65,10 @@ struct SSABlock {
             let dood = dead ? "MORTO " : "      "
             let dump = stmt.dump.padding(toLength: width + 30, withPad: " ", startingAt: 0)
             let vars = dumpvars(stmt)
+            
+            if !showDead && dead {
+                continue
+            }
             
             if tabled {
                 print("\t\(dood)\(dump)\(vars)")
@@ -89,6 +94,10 @@ struct SSABlock {
                 let dood = dead ? "MORTO " : "      "
                 let dump = stmt.dump
                 
+                if !showDead && dead {
+                    continue
+                }
+
                 let vars = dumpvars(stmt)
                 let asm = i == 0 ? insn?.asm ?? "" : ""
                 let d = dump.padding(toLength: width, withPad: " ", startingAt: 0)
@@ -510,6 +519,29 @@ struct Converter {
         }
     }
     
+    mutating func assignmentsToZero() {
+        for (block, _) in ssaGraph.ssaBlocks {
+            ssaGraph.forEachSSAStatementIndex(in: block) { idx in
+                let stmt = ssaGraph.statementFor(idx)
+                
+                if
+                    let assignment = stmt as? SSABinaryOpStatement,
+                    assignment.op == .diff || assignment.op == .xor,
+                    case .reg(let lhs) = assignment.lhs,
+                    case .reg(let rhs) = assignment.rhs,
+                    lhs == rhs,
+                    case .stmt(let blockId, let insn, let s) = idx
+                {
+                    ssaGraph.ssaBlocks[blockId]!.statements[insn].1[s] =
+                        SSAConstAssignmentStatement(
+                            name: assignment.result,
+                            const: 0
+                        )
+                }
+            }
+        }
+    }
+    
     init(cfg: CFGGraph) {
         self.cfg = cfg
         ssaGraph = SSAGraph(from: cfg)
@@ -518,6 +550,7 @@ struct Converter {
     }
     
     mutating func convert() {
+        assignmentsToZero()
         placePhis()
         registersSizes()
         rename()
@@ -536,10 +569,10 @@ extension SSABlock {
         
         let temper = { (n: String) -> SSAName in
             SSABlock.temper_i += 1
-            return SSAName(name: "T\(SSABlock.temper_i)_\(n)")
+            return SSAName(name: n)// "T\(SSABlock.temper_i)_\(n)")
         }
         
-//        print(insn.asm)
+        print(insn.asm)
         
         switch insn.mnemonic {
         
@@ -580,7 +613,7 @@ extension SSABlock {
                     addressing: Addressing.stackPointer
                 ),
                 SSAMemoryReadStatement(
-                    name: SSAName(register: .gpr(.sp, .low16)),
+                    name: op0.registerName.ssa,
                     address: tempName
                 ),
             ]
@@ -602,7 +635,6 @@ extension SSABlock {
                         name: tempName,
                         addressing: Addressing(insn, op1)
                     ),
-
                     SSAMemoryReadStatement(
                         name: op0.registerName.ssa,
                         address: tempName
@@ -665,18 +697,27 @@ extension SSABlock {
         case UD_Ijmp:
             return Jump(insn: insn)
 
-        case UD_Ijae:
-            return Jump(insn: insn, type: "jae")
+        case UD_Ija:    return Jump(insn: insn, type: "ja")
+        case UD_Ijae:   return Jump(insn: insn, type: "jae")
+        case UD_Ijb:    return Jump(insn: insn, type: "jb")
+        case UD_Ijbe:   return Jump(insn: insn, type: "jbe")
+        case UD_Ijcxz:  return Jump(insn: insn, type: "jcxz")
+        case UD_Ijecxz: return Jump(insn: insn, type: "jecxz")
+        case UD_Ijg:    return Jump(insn: insn, type: "jg")
+        case UD_Ijge:   return Jump(insn: insn, type: "jge")
+        case UD_Ijl:    return Jump(insn: insn, type: "jl")
+        case UD_Ijle:   return Jump(insn: insn, type: "jle")
+        case UD_Ijmp:   return Jump(insn: insn, type: "jmp")
+        case UD_Ijno:   return Jump(insn: insn, type: "jno")
+        case UD_Ijnp:   return Jump(insn: insn, type: "jnp")
+        case UD_Ijns:   return Jump(insn: insn, type: "jns")
+        case UD_Ijnz:   return Jump(insn: insn, type: "jnz")
+        case UD_Ijo:    return Jump(insn: insn, type: "jo")
+        case UD_Ijp:    return Jump(insn: insn, type: "jp")
+        case UD_Ijrcxz: return Jump(insn: insn, type: "jrcxz")
+        case UD_Ijs:    return Jump(insn: insn, type: "js")
+        case UD_Ijz:    return Jump(insn: insn, type: "jz")
             
-        case UD_Ijns:
-            return Jump(insn: insn, type: "jns")
-            
-        case UD_Ijnz:
-            return Jump(insn: insn, type: "jnz")
-            
-        case UD_Ijz:
-            return Jump(insn: insn, type: "jz")
-
         case UD_Iret:
             return EpilogueStatements()
 
@@ -684,46 +725,43 @@ extension SSABlock {
             return EpilogueStatements()
             
         case UD_Iadd:
-            if op0.operandType == .reg && op1.operandType == .imm {
-                return [
-                    SSABinaryOpStatement(
-                        result: op0.registerName.ssa,
-                        op: .sum,
-                        lhs: op0.registerName,
-                        rhs: Int(op1.uint64value)
-                    )
-                ]
-            }
-            else if op0.operandType == .reg && op1.operandType == .reg {
-                return [
-                   SSAVariableAssignmentStatement(
-                       name: op0.registerName.ssa,
-                       value: op0.registerName.ssa
-                   )
-               ]
-            }
-            else {
-                fatalError()
-            }
+            return BinaryOpStatements(insn: insn, op: .sum, temper: temper)
             
         case UD_Isub:
-            if op0.operandType == .reg && op1.operandType == .imm {
+            return BinaryOpStatements(insn: insn, op: .diff, temper: temper)
+
+        case UD_Imul:
+            return BinaryOpStatements(insn: insn, op: .mul, temper: temper)
+
+        case UD_Iand:
+            return BinaryOpStatements(insn: insn, op: .and, temper: temper)
+            
+        case UD_Ior:
+            return BinaryOpStatements(insn: insn, op: .or, temper: temper)
+            
+        case UD_Ixor:
+            return BinaryOpStatements(insn: insn, op: .xor, temper: temper)
+
+        case UD_Ishr:
+            return BinaryOpStatements(insn: insn, op: .shr, temper: temper)
+
+        case UD_Ishl:
+            return BinaryOpStatements(insn: insn, op: .shl, temper: temper)
+            
+        case UD_Iror:
+            return BinaryOpStatements(insn: insn, op: .ror, temper: temper)
+            
+        case UD_Irol:
+            return BinaryOpStatements(insn: insn, op: .rol, temper: temper)
+
+        case UD_Ineg:
+            if op0.operandType == .reg  {
                 return [
                     SSABinaryOpStatement(
                         result: op0.registerName.ssa,
-                        op: .diff,
+                        op: .mul,
                         lhs: op0.registerName,
-                        rhs: Int(op1.uint64value)
-                    )
-                ]
-            }
-            else if op0.operandType == .reg && op1.operandType == .reg {
-                return [
-                    SSABinaryOpStatement(
-                        result: op0.registerName.ssa,
-                        op: .diff,
-                        lhs: op0.registerName,
-                        rhs: op1.registerName
+                        rhs: -1
                     ),
                     SSAFlagsAssignmentStatement(
                         value: op0.registerName.ssa
@@ -733,81 +771,48 @@ extension SSABlock {
             else {
                 fatalError()
             }
-            
-        case UD_Imul:
-            if op0.operandType == .reg && op1.operandType == .reg {
-                return [
-                    SSABinaryOpStatement(
-                        result: op0.registerName.ssa,
-                        op: .mul,
-                        lhs: op0.registerName,
-                        rhs: op1.registerName
-                    )
-                ]
-            }
-            else if op0.operandType == .reg && op1.operandType == nil {
-                return [
-                    SSABinaryOpStatement(
-                        result: Register.gpr(.ax, .low16).ssa,
-                        op: .mul,
-                        lhs: op0.registerName,
-                        rhs: .gpr(.ax, .low16)
-                    )
-                ]
-            }
-            else {
-                fatalError()
-            }
-            
-        case UD_Ishr:
-            assert(op0.operandType == .reg)
-            assert(op1.operandType == .const)
-            
-            return [
-                SSABinaryOpStatement(
-                    result: op0.registerName.ssa,
-                    op: .shr,
-                    lhs: op0.registerName,
-                    rhs: Int(op1.uint64value)
-                )
-            ]
-            
-        case UD_Ishl:
-            if op0.operandType == .reg && op1.operandType == .const {
-                return [
-                    SSABinaryOpStatement(
-                        result: op0.registerName.ssa,
-                        op: .shl,
-                        lhs: op0.registerName,
-                        rhs: Int(op1.uint64value)
-                    )
-                ]
-            }
-            else if op0.operandType == .reg && op1.operandType == .reg {
-                return [
-                    SSABinaryOpStatement(
-                        result: op0.registerName.ssa,
-                        op: .shl,
-                        lhs: op0.registerName,
-                        rhs: op1.registerName
-                    )
-                ]
-            }
-            else {
-                fatalError()
-            }
 
         case UD_Iinc:
-            assert(op0.operandType == .reg)
-            
-            return [
-                SSABinaryOpStatement(
-                    result: op0.registerName.ssa,
-                    op: .sum,
-                    lhs: op0.registerName,
-                    rhs: Int(1)
-                )
-            ]
+            if op0.operandType == .reg {
+                return [
+                    SSABinaryOpStatement(
+                        result: op0.registerName.ssa,
+                        op: .sum,
+                        lhs: op0.registerName,
+                        rhs: Int(1)
+                    ),
+                    SSAFlagsAssignmentStatement(
+                        value: op0.registerName.ssa
+                    )
+                ]
+            }
+            else if op0.operandType == .mem {
+                let addr = temper("addr")
+                let val  = temper("val")
+                return [
+                    SSAMemoryAddressResolver(
+                        name: addr,
+                        addressing: insn.op0addressing
+                    ),
+                    SSAMemoryReadStatement(
+                        name: val,
+                        address: addr
+                    ),
+                    SSABinaryOpStatement(
+                        result: val,
+                        op: .sum,
+                        lhs: val,
+                        rhs: 1
+                    ),
+                    SSAMemoryWriteStatement(
+                        address: addr,
+                        value: val
+                    )
+                ]
+            }
+            else {
+                fatalError()
+            }
 
         case UD_Idec:
             assert(op0.operandType == .reg)
@@ -821,35 +826,12 @@ extension SSABlock {
                 ),
                 SSAFlagsAssignmentStatement(
                     value: op0.registerName.ssa
-                )
-            ]
-
-        case UD_Iand:
-            assert(op0.operandType == .reg)
-            assert(op1.operandType == .imm)
-
-            return [
-                SSABinaryOpStatement(
-                    result: op0.registerName.ssa,
-                    op: .and,
-                    lhs: op0.registerName,
-                    rhs: Int(op1.uint64value)
+                ),
+                SSAFlagsAssignmentStatement(
+                    value: op0.registerName.ssa
                 )
             ]
             
-        case UD_Ior:
-            assert(op0.operandType == .reg)
-            assert(op1.operandType == .reg)
-
-            return [
-                SSABinaryOpStatement(
-                    result: op0.registerName.ssa,
-                    op: .or,
-                    lhs: op0.registerName,
-                    rhs: op1.registerName
-                )
-            ]
-
         case UD_Iloop:
             assert(op0.operandType == .jimm)
             
@@ -920,7 +902,7 @@ extension SSABlock {
                     )
                 ]
             }
-            if op0.operandType == .reg && op1.operandType == .imm {
+            else if op0.operandType == .reg && op1.operandType == .imm {
                 let tempName = temper("val")
                 
                 return [
@@ -930,11 +912,74 @@ extension SSABlock {
                         lhs: op0.registerName,
                         rhs: Int(op1.int64value)
                     ),
-
                     SSAFlagsAssignmentStatement(
                         value: tempName
                     )
                 ]
+            }
+            else if op0.operandType == .reg && op1.operandType == .reg {
+                let tempName = temper("val")
+                
+                return [
+                    SSABinaryOpStatement(
+                        result: tempName,
+                        op: .diff,
+                        lhs: op0.registerName,
+                        rhs: op1.registerName
+                    ),
+                    SSAFlagsAssignmentStatement(
+                        value: tempName
+                    )
+                ]
+            }
+
+            else if op0.operandType == .mem && op1.operandType == .reg {
+                let val = temper("val")
+                let addr = temper("addr")
+                
+                return [
+                    SSAMemoryAddressResolver(
+                        name: addr,
+                        addressing: insn.op0addressing
+                    ),
+                    SSAMemoryReadStatement(
+                        name: val,
+                        address: addr
+                    ),
+                    SSABinaryOpStatement(
+                        result: val,
+                        op: .diff,
+                        lhs: val,
+                        rhs: op1.registerName
+                    ),
+                    SSAFlagsAssignmentStatement(
+                        value: val
+                    )
+               ]
+            }
+            else if op0.operandType == .reg && op1.operandType == .mem {
+                let val = temper("val")
+                let addr = temper("addr")
+                
+                return [
+                    SSAMemoryAddressResolver(
+                        name: addr,
+                        addressing: insn.op1addressing
+                    ),
+                    SSAMemoryReadStatement(
+                        name: val,
+                        address: addr
+                    ),
+                    SSABinaryOpStatement(
+                        result: val,
+                        op: .diff,
+                        lhs: op0.registerName,
+                        rhs: val
+                    ),
+                    SSAFlagsAssignmentStatement(
+                        value: val
+                    )
+               ]
             }
             else {
                 fatalError()
@@ -991,7 +1036,7 @@ extension SSABlock {
                 )
             ]
             
-        case UD_Ilodsw:
+        case UD_Istosw:
             let addr = temper("addr")
             
             return [
@@ -1010,27 +1055,38 @@ extension SSABlock {
                     rhs: 2
                 )
             ]
-
-        case UD_Istosw:
+            
+        case UD_Istosb:
             let addr = temper("addr")
             
             return [
                 SSAMemoryAddressResolver(
                     name: addr,
-                    addressing: .base(segment: .ds, base: .gpr(.si, .low16))
+                    addressing: .base(segment: .es, base: .gpr(.di, .low16))
                 ),
-                SSAMemoryReadStatement(
-                    name: Register.gpr(.ax, .low16).ssa,
-                    address: addr
+                SSAMemoryWriteStatement(
+                    address: addr,
+                    value: Register.gpr(.ax, .low8).ssa
                 ),
                 SSABinaryOpStatement(
                     result: Register.gpr(.si, .low16).ssa,
                     op: .sum,
-                    lhs: .gpr(.si, .low16),
+                    lhs: .gpr(.di, .low16),
                     rhs: 1
                 )
             ]
 
+            
+        case UD_Icli:
+            return [ SSACliStatement() ]
+
+        case UD_Isti:
+            return [ SSAStiStatement() ]
+
+        case UD_Icld:
+            // TODO: direction flag
+            return []
+            
         default:
             fatalError()
         }
@@ -1051,6 +1107,128 @@ func Jump(insn: Instruction, type: String? = nil) -> [SSAStatement] {
     }
     else {
         return [ SSAJmpStatement(target: label) ]
+    }
+}
+
+func BinaryOpStatements(
+    insn: Instruction,
+    op: SSABinaryOpStatement.Operation,
+    temper: (String) -> SSAName
+) -> [SSAStatement]
+{
+    let op0 = insn.operands.0
+    let op1 = insn.operands.1
+    
+    if op0.operandType == .reg && op1.operandType == nil {
+        return [
+            SSABinaryOpStatement(
+                result: Register.gpr(.ax, .low16).ssa,
+                op: op,
+                lhs: op0.registerName,
+                rhs: .gpr(.ax, .low16)
+            ),
+            SSAFlagsAssignmentStatement(
+                value: op0.registerName.ssa
+            )
+        ]
+    }
+    else if op0.operandType == .reg && op1.operandType == .imm {
+        return [
+            SSABinaryOpStatement(
+                result: op0.registerName.ssa,
+                op: op,
+                lhs: op0.registerName,
+                rhs: Int(op1.uint64value)
+            ),
+            SSAFlagsAssignmentStatement(
+                value: op0.registerName.ssa
+            )
+        ]
+    }
+    else if op0.operandType == .reg && op1.operandType == .reg {
+        return [
+            SSABinaryOpStatement(
+                result: op0.registerName.ssa,
+                op: op,
+                lhs: op0.registerName,
+                rhs: op1.registerName
+            ),
+            SSAFlagsAssignmentStatement(
+                value: op0.registerName.ssa
+            )
+       ]
+    }
+    else if op0.operandType == .mem && op1.operandType == .reg {
+        let val = temper("val")
+        let addr = temper("addr")
+        
+        return [
+            SSAMemoryAddressResolver(
+                name: addr,
+                addressing: insn.op0addressing
+            ),
+            SSAMemoryReadStatement(
+                name: val,
+                address: addr
+            ),
+            SSABinaryOpStatement(
+                result: val,
+                op: op,
+                lhs: val,
+                rhs: op1.registerName
+            ),
+            SSAMemoryWriteStatement(
+                address: addr,
+                value: val
+            ),
+            SSAFlagsAssignmentStatement(
+                value: val
+            )
+       ]
+    }
+    else if op0.operandType == .mem && op1.operandType == .imm {
+        let val = temper("val")
+        let addr = temper("addr")
+        
+        return [
+            SSAMemoryAddressResolver(
+                name: addr,
+                addressing: insn.op0addressing
+            ),
+            SSAMemoryReadStatement(
+                name: val,
+                address: addr
+            ),
+            SSABinaryOpStatement(
+                result: val,
+                op: op,
+                lhs: val,
+                rhs: Int(op1.uint64value)
+            ),
+            SSAMemoryWriteStatement(
+                address: addr,
+                value: val
+            ),
+            SSAFlagsAssignmentStatement(
+                value: val
+            )
+       ]
+    }
+    else if op0.operandType == .reg && op1.operandType == .const {
+        return [
+            SSABinaryOpStatement(
+                result: op0.registerName.ssa,
+                op: op,
+                lhs: op0.registerName,
+                rhs: Int(op1.uint64value)
+            ),
+            SSAFlagsAssignmentStatement(
+                value: op0.registerName.ssa
+            )
+        ]
+    }
+    else {
+        fatalError()
     }
 }
 
