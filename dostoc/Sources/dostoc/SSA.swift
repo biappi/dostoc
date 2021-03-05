@@ -90,11 +90,11 @@ extension SSANoVariablesReferenced {
 
 struct SSAPhiAssignmentStatement: SSAStatement {
     var name: SSAName
-    var phis: [Int]
+    var phis: [Int?]
         
     var phiNames: [String] {
         return phis
-            .map { "\(name.name)_\($0)"}
+            .map { "\(name.name)_\($0.map { "\($0)" } ?? "nil")"}
     }
     
     var dump: String {
@@ -189,7 +189,8 @@ struct SSABinaryOpStatement: SSAStatement {
         case mul  = "*"
         case shr  = ">>"
         case shl  = "<<"
-        case and  = "&&"
+        case and  = "&"
+        case or   = "|"
     }
 
     enum Operand {

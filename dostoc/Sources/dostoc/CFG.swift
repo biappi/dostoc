@@ -19,32 +19,36 @@ extension FlowType {
 }
 
 struct CFGBlock {
+    let start: UInt64
+    
     var instructions = [Instruction]()
     
     mutating func add(instruction: Instruction) {
         instructions.append(instruction)
     }
     
-    var startInstruction: Instruction {
-        return instructions.first!
-    }
-
-    var endInstruction: Instruction {
-        return instructions.last!
-    }
-    
-    var start: UInt64 {
-        startInstruction.offset
-    }
-    
-    var end: [UInt64] {
-        endInstruction.branches.asList
-    }
+//    var startInstruction: Instruction {
+//        return instructions.first!
+//    }
+//
+//    var endInstruction: Instruction {
+//        return instructions.last!
+//    }
+//
+//    var start: UInt64 {
+//        startInstruction.offset
+//    }
+//
+//    var end: [UInt64] {
+//        endInstruction.branches.asList
+//    }
 }
 
 struct CFGGraph: Graph {
     let start:  UInt64
     let blocks: [UInt64 : CFGBlock]
+    
+    let successors:   [UInt64 : [UInt64]]
     let predecessors: [UInt64 : [UInt64]]
     
     var nodes: [UInt64] { Array(blocks.keys) }
@@ -52,6 +56,9 @@ struct CFGGraph: Graph {
     init(from xrefAnalisys: InstructionXrefs) {
         var blocks = [UInt64 : CFGBlock]()
         var currentBlock: UInt64? = xrefAnalisys.start
+        
+        var predecessors = [UInt64 : [UInt64]]()
+        var successors   = [UInt64 : [UInt64]]()
         
         for addr in xrefAnalisys.insns.keys.sorted() {
             let insn = xrefAnalisys.insns[addr]!
@@ -64,24 +71,34 @@ struct CFGGraph: Graph {
                 currentBlock = addr
             }
             
-            blocks[currentBlock!, default: CFGBlock()].add(instruction: insn)
+            blocks[currentBlock!, default: CFGBlock(start: addr)].add(instruction: insn)
             
             if insn.flowType.shouldBreakBasicBlock {
                 currentBlock = nil
             }
         }
         
-        var predecessors = [UInt64 : [UInt64]]()
-        
         for (addr, block) in blocks {
-            for end in block.end {
+            let tails = block.instructions.last!.branches.asList
+            
+            successors[addr] = tails
+            
+            for end in tails {
                 predecessors[end, default: []].append(addr)
             }
         }
         
-        self.start = xrefAnalisys.start
+        
+        let entryBlock = CFGBlock(start: 0xffffffffffffffff, instructions: [])
+        
+        blocks[entryBlock.start] = entryBlock
+        successors[entryBlock.start] = [xrefAnalisys.start]
+        predecessors[xrefAnalisys.start, default: []].append(entryBlock.start)
+
+        self.start = entryBlock.start
         self.blocks = blocks
         self.predecessors = predecessors
+        self.successors = successors
     }
 
     func predecessors(of node: UInt64) -> [UInt64] {
@@ -89,7 +106,7 @@ struct CFGGraph: Graph {
     }
     
     func successors(of node: UInt64) -> [UInt64] {
-        return blocks[node]!.end
+        return successors[node] ?? []
     }
     
     func dump() {
@@ -102,7 +119,7 @@ struct CFGGraph: Graph {
             .map { $0.value }
         
         for block in sortedBlocks  {
-            let forward = block.end.map { "\"\($0.hexString)\"" }.joined(separator: ", ")
+            let forward = successors(of: block.start).map { "\"\($0.hexString)\"" }.joined(separator: ", ")
             print("\t\t\"\(block.start.hexString)\" -> \(forward)")
         }
         

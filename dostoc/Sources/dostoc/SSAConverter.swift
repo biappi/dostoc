@@ -37,8 +37,7 @@ struct SSABlock {
         Set(
             statements
                 .flatMap { $0.1 }
-                .compactMap { $0 as? SSAVariableAssignmentStatement }
-                .compactMap { $0.name }
+                .flatMap { $0.variablesDefined }
         )
     }
     
@@ -48,9 +47,16 @@ struct SSABlock {
         let width = 50
         
         let dumpvars = { (stmt: SSAStatement) -> String in
-            stmt.allVariables.map {
-                "\($0.dump)" // ":\($0.size)"
-            }.joined(separator: ", ")
+            let toString = { (vars: Set<SSAName>) -> String in
+                vars
+                    .map { "\($0.dump)" } // ":\($0.size)" }
+                    .joined(separator: ", ")
+            }
+            
+            let def = toString(stmt.variablesDefined)
+            let ref = toString(stmt.variablesReferenced)
+            
+            return "\(def) = \(ref)"
         }
         
         for (i, stmt) in phiStatements.enumerated() {
@@ -170,7 +176,7 @@ struct SSAGraph {
         let phi = SSAPhiAssignmentStatement(
             name: variable,
             phis: Array(
-                repeating: 0,
+                repeating: nil,
                 count: cfg.predecessors(of: node).count
             )
         )
@@ -215,7 +221,7 @@ struct SSAGraph {
             cfgblock in
             
             let backlinks = cfg.predecessors(of: cfgblock.start).map { $0.hexString }.joined(separator: ", ")
-            let fwdlinks = cfgblock.end.map { $0.hexString }.joined(separator: ", ")
+            let fwdlinks = cfg.successors(of: cfgblock.start).map { $0.hexString }.joined(separator: ", ")
 
             print("Block \(i) [\(cfgblock.start.hexString)] - (\(backlinks)) --> (\(fwdlinks))")
             print()
@@ -280,12 +286,12 @@ struct Converter {
             counters[variable] = i + 1
         }
 
-        let getIndex = { (variable: String) -> Int in
-            if stacks[variable] == nil {
-                genName(variable)
-            }
-            
-            return stacks[variable]!.last!
+        let getIndex = { (variable: String) -> Int? in
+            stacks[variable]?.last
+        }
+
+        let getIndexOrCreate = { (variable: String) -> Int in
+            getIndex(variable) ?? (genName(variable), getIndex(variable)!).1
         }
         
         var visited = Set<UInt64>()
@@ -309,7 +315,7 @@ struct Converter {
                     for variable in rhsVariables {
                         ssaGraph.ssaBlocks[block]!.statements[i].1[k].renameReferencedVariables(
                             name: variable.name,
-                            index: getIndex(variable.name)
+                            index: getIndexOrCreate(variable.name)
                         )
                     }
                     
@@ -319,7 +325,7 @@ struct Converter {
                         genName(variable.name)
                         ssaGraph.ssaBlocks[block]!.statements[i].1[k].renameDefinedVariables(
                             name: variable.name,
-                            index: getIndex(variable.name)
+                            index: getIndexOrCreate(variable.name)
                         )
                     }
                 }
@@ -440,7 +446,6 @@ struct Converter {
                            lastSize != part.byteSize
                         {
                             if lastSize == 2 {
-                                print("  conversion \(name) '")
                                 conversions.append(
                                     Conversion(
                                         index: idx,
@@ -534,7 +539,7 @@ extension SSABlock {
             return SSAName(name: "T\(SSABlock.temper_i)_\(n)")
         }
         
-        print(insn.asm)
+//        print(insn.asm)
         
         switch insn.mnemonic {
         
@@ -590,7 +595,6 @@ extension SSABlock {
                 ]
             }
             else if op0.operandType == .reg && op1.operandType == .mem {
-                print(op0.size, op1.size)
                 let tempName = temper("addr")
                 
                 return [
@@ -614,7 +618,6 @@ extension SSABlock {
                 ]
             }
             else if op0.operandType == .mem && op1.operandType == .reg {
-                print(op0.size, op1.size)
                 let tempName = temper("addr")
                 
                 return [
@@ -629,8 +632,6 @@ extension SSABlock {
                 ]
             }
             else if op0.operandType == .mem && op1.operandType == .imm {
-                print(op0.size, op1.size)
-
                 let address = temper("addr")
                 let val = temper("val")
                 
@@ -772,17 +773,29 @@ extension SSABlock {
             ]
             
         case UD_Ishl:
-            assert(op0.operandType == .reg)
-            assert(op1.operandType == .const)
-            
-            return [
-                SSABinaryOpStatement(
-                    result: op0.registerName.ssa,
-                    op: .shl,
-                    lhs: op0.registerName,
-                    rhs: Int(op1.uint64value)
-                )
-            ]
+            if op0.operandType == .reg && op1.operandType == .const {
+                return [
+                    SSABinaryOpStatement(
+                        result: op0.registerName.ssa,
+                        op: .shl,
+                        lhs: op0.registerName,
+                        rhs: Int(op1.uint64value)
+                    )
+                ]
+            }
+            else if op0.operandType == .reg && op1.operandType == .reg {
+                return [
+                    SSABinaryOpStatement(
+                        result: op0.registerName.ssa,
+                        op: .shl,
+                        lhs: op0.registerName,
+                        rhs: op1.registerName
+                    )
+                ]
+            }
+            else {
+                fatalError()
+            }
 
         case UD_Iinc:
             assert(op0.operandType == .reg)
@@ -823,7 +836,20 @@ extension SSABlock {
                     rhs: Int(op1.uint64value)
                 )
             ]
-        
+            
+        case UD_Ior:
+            assert(op0.operandType == .reg)
+            assert(op1.operandType == .reg)
+
+            return [
+                SSABinaryOpStatement(
+                    result: op0.registerName.ssa,
+                    op: .or,
+                    lhs: op0.registerName,
+                    rhs: op1.registerName
+                )
+            ]
+
         case UD_Iloop:
             assert(op0.operandType == .jimm)
             
@@ -945,6 +971,66 @@ extension SSABlock {
                 ),
             ]
             
+        case UD_Ilodsw:
+            let addr = temper("addr")
+            
+            return [
+                SSAMemoryAddressResolver(
+                    name: addr,
+                    addressing: .base(segment: .ds, base: .gpr(.si, .low16))
+                ),
+                SSAMemoryReadStatement(
+                    name: Register.gpr(.ax, .low16).ssa,
+                    address: addr
+                ),
+                SSABinaryOpStatement(
+                    result: Register.gpr(.si, .low16).ssa,
+                    op: .sum,
+                    lhs: .gpr(.si, .low16),
+                    rhs: 2
+                )
+            ]
+            
+        case UD_Ilodsw:
+            let addr = temper("addr")
+            
+            return [
+                SSAMemoryAddressResolver(
+                    name: addr,
+                    addressing: .base(segment: .es, base: .gpr(.di, .low16))
+                ),
+                SSAMemoryWriteStatement(
+                    address: addr,
+                    value: Register.gpr(.ax, .low16).ssa
+                ),
+                SSABinaryOpStatement(
+                    result: Register.gpr(.si, .low16).ssa,
+                    op: .sum,
+                    lhs: .gpr(.di, .low16),
+                    rhs: 2
+                )
+            ]
+
+        case UD_Istosw:
+            let addr = temper("addr")
+            
+            return [
+                SSAMemoryAddressResolver(
+                    name: addr,
+                    addressing: .base(segment: .ds, base: .gpr(.si, .low16))
+                ),
+                SSAMemoryReadStatement(
+                    name: Register.gpr(.ax, .low16).ssa,
+                    address: addr
+                ),
+                SSABinaryOpStatement(
+                    result: Register.gpr(.si, .low16).ssa,
+                    op: .sum,
+                    lhs: .gpr(.si, .low16),
+                    rhs: 1
+                )
+            ]
+
         default:
             fatalError()
         }
@@ -969,6 +1055,7 @@ func Jump(insn: Instruction, type: String? = nil) -> [SSAStatement] {
 }
 
 func PrologueStatements() -> [SSAStatement] {
+    return []
     return [
         SSAPrologueStatement(register: SSAName(register: .gpr(.ax, .low16))),
         SSAPrologueStatement(register: SSAName(register: .gpr(.bx, .low16))),
@@ -988,6 +1075,7 @@ func PrologueStatements() -> [SSAStatement] {
 }
 
 func EpilogueStatements() -> [SSAStatement] {
+    return [SSAEndStatement()]
     return [
         SSAEndStatement(),
         SSAEpilogueStatement(register: SSAName(register: .gpr(.ax, .low16))),

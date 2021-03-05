@@ -53,6 +53,8 @@ func xx(x: UInt64) {
 //xx(x: Examples.main)
 
 //xx(x: RealToLinear(seg: 0x2b10, off: 0x28d0))
-//xx(x: RealToLinear(seg: 0x2def, off: 0x062a))
+//
 
-xx(x: Examples.hasAX)
+//xx(x: Examples.hasAX)
+//xx(x: RealToLinear(seg: 0x1a75, off: 0x120b))
+xx(x: RealToLinear(seg: 0x1bdc, off: 0x1666))
