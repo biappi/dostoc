@@ -243,6 +243,38 @@ struct SSAGraph {
     }
 }
 
+struct GraphWithStart : Graph {
+
+    let g: CFGGraph
+
+    var start : UInt64 { 0xffffffffffffffff }
+
+    var nodes: [UInt64] {
+        g.nodes + [start]
+    }
+    
+    func successors(of node: UInt64) -> [UInt64] {
+        if node == start {
+            return [g.start]
+        }
+        else {
+            return g.successors(of: node)
+        }
+    }
+    
+    func predecessors(of node: UInt64) -> [UInt64] {
+        if node == start {
+            return []
+        }
+        else if node == g.start {
+            return g.predecessors(of: node) + [start]
+        }
+        else {
+            return g.predecessors(of: node)
+        }
+    }
+}
+
 struct Converter {
     let cfg: CFGGraph
     var ssaGraph: SSAGraph
@@ -402,7 +434,12 @@ struct Converter {
             let stmtIdx = worklist.removeFirst()
             let stmt = ssaGraph.statementFor(stmtIdx)
             
-            if (stmt as? SSAJccStatement) != nil {
+            if
+                ((stmt as? SSAJmpStatement)         != nil) ||
+                ((stmt as? SSAJccStatement)         != nil) ||
+                ((stmt as? SSAMemoryReadStatement)  != nil) ||
+                ((stmt as? SSAMemoryWriteStatement) != nil)
+            {
                 continue
             }
             
@@ -545,8 +582,10 @@ struct Converter {
     init(cfg: CFGGraph) {
         self.cfg = cfg
         ssaGraph = SSAGraph(from: cfg)
-        doms = dominators(graph: cfg)
-        frontier = dominanceFrontier(graph: cfg, doms: doms)
+        let syntetic = GraphWithStart(g: cfg)
+
+        doms = dominators(graph: syntetic)
+        frontier = dominanceFrontier(graph: syntetic, doms: doms)
     }
     
     mutating func convert() {
@@ -572,7 +611,7 @@ extension SSABlock {
             return SSAName(name: n)// "T\(SSABlock.temper_i)_\(n)")
         }
         
-        print(insn.asm)
+//        print(insn.asm)
         
         switch insn.mnemonic {
         

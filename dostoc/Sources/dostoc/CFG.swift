@@ -30,7 +30,6 @@ struct CFGBlock {
 
 struct CFGGraph: Graph {
     let start:  UInt64
-    let nonSynteticStart:  UInt64
     let blocks: [UInt64 : CFGBlock]
     
     let successors:   [UInt64 : [UInt64]]
@@ -74,14 +73,7 @@ struct CFGGraph: Graph {
         }
         
         
-        let entryBlock = CFGBlock(start: 0xffffffffffffffff, instructions: [])
-        
-        blocks[entryBlock.start] = entryBlock
-        successors[entryBlock.start] = [xrefAnalisys.start]
-        predecessors[xrefAnalisys.start, default: []].append(entryBlock.start)
-
-        self.start = entryBlock.start
-        self.nonSynteticStart = xrefAnalisys.start
+        self.start = xrefAnalisys.start
         self.blocks = blocks
         self.predecessors = predecessors
         self.successors = successors
@@ -106,7 +98,7 @@ struct CFGGraph: Graph {
         
         for block in sortedBlocks  {
             let forward = successors(of: block.start).map { "\"\($0.hexString)\"" }.joined(separator: ", ")
-            print("\t\t\"\(block.start.hexString)\" -> \(forward)")
+            print("\t\t\"\(block.start.hexString)\" -> \(forward);")
         }
         
         print()

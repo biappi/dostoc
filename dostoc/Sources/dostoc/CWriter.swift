@@ -27,8 +27,11 @@ func rewrite(_ statement: SSAStatement) -> String? {
             guard let base = s.baseVariable else { break }
             return "\(s.name.cDeclaration) = \(base.cName) \(d > 0 ? "+" : "-") \(String(format: "0x%x", abs(d)));"
 
+        case .displacement(_, let d):
+            return "\(s.name.cDeclaration) = 0x\(String(format: "%x", d));"
+            
         default:
-            break
+            fatalError()
         }
     }
     if let s = statement as? SSAMemoryWriteStatement {
@@ -182,7 +185,7 @@ func rewrite(ssaGraph: SSAGraph, deleted: Set<StatementIndex>)
     print("#define flags(x)    x")
     print("#define FLAGS(x, y) y")
     print()
-    print("void sub_\(ssaGraph.cfg.nonSynteticStart.hexString)(\(parameters))")
+    print("void sub_\(ssaGraph.cfg.start.hexString)(\(parameters))")
     print("{")
         
     for phiVariable in phiVariables {
@@ -194,11 +197,7 @@ func rewrite(ssaGraph: SSAGraph, deleted: Set<StatementIndex>)
     let sortedBlocks = ssaGraph.cfg.blocks.keys.sorted()
     for blockId in sortedBlocks {
         let block = ssaGraph.cfg.blocks[blockId]!
-        
-        if blockId == ssaGraph.cfg.start {
-            continue
-        }
-        
+                
         print("loc_\(block.start.hexString):;")
         
         var statementsToRewrite = [StatementIndex]()
