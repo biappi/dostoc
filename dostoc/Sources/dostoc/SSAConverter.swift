@@ -243,19 +243,41 @@ struct SSAGraph {
     }
 }
 
-struct GraphWithStart : Graph {
+/*
+struct CFGWrapper : Graph {
 
     let g: CFGGraph
-
-    var start : UInt64 { 0xffffffffffffffff }
-
+    let exitNodes: [UInt64]
+    
+    var start: UInt64 { 0xffffffffffffffff }
+    var end: UInt64 { 0xfffffffffffffffe }
+    
+    init(g: CFGGraph) {
+        var exitNodes = [UInt64]()
+        
+        for n in g.nodes {
+            if g.successors(of: n).isEmpty {
+                exitNodes.append(n)
+            }
+        }
+        
+        self.g = g
+        self.exitNodes = exitNodes
+    }
+    
     var nodes: [UInt64] {
-        g.nodes + [start]
+        g.nodes + [start, end]
     }
     
     func successors(of node: UInt64) -> [UInt64] {
         if node == start {
             return [g.start]
+        }
+        else if node == end {
+            return []
+        }
+        else if exitNodes.contains(node) {
+            return g.successors(of: node) + [end]
         }
         else {
             return g.successors(of: node)
@@ -269,12 +291,15 @@ struct GraphWithStart : Graph {
         else if node == g.start {
             return g.predecessors(of: node) + [start]
         }
+        else if node == end {
+            return exitNodes
+        }
         else {
             return g.predecessors(of: node)
         }
     }
 }
-
+*/
 struct Converter {
     let cfg: CFGGraph
     var ssaGraph: SSAGraph
@@ -582,10 +607,8 @@ struct Converter {
     init(cfg: CFGGraph) {
         self.cfg = cfg
         ssaGraph = SSAGraph(from: cfg)
-        let syntetic = GraphWithStart(g: cfg)
-
-        doms = dominators(graph: syntetic)
-        frontier = dominanceFrontier(graph: syntetic, doms: doms)
+        doms = dominators(graph: cfg)
+        frontier = dominanceFrontier(graph: cfg, doms: doms)
     }
     
     mutating func convert() {
@@ -611,30 +634,64 @@ extension SSABlock {
             return SSAName(name: n)// "T\(SSABlock.temper_i)_\(n)")
         }
         
-//        print(insn.asm)
+        print(insn.asm)
         
         switch insn.mnemonic {
         
         case UD_Ipush:
-            assert(op0.operandType == .reg)
-            let tempName = temper("addr")
-            
-            return [
-                SSAMemoryAddressResolver(
-                    name: tempName,
-                    addressing: Addressing.stackPointer
-                ),
-                SSAMemoryWriteStatement(
-                    address: tempName,
-                    value: op0.registerName.ssa
-                ),
-                SSABinaryOpStatement(
-                    result: Register.gpr(.sp, .low16).ssa,
-                    op: .diff,
-                    lhs: .gpr(.sp, .low16),
-                    rhs: Int(2)
-                )
-            ]
+            if op0.operandType == .reg {
+                let tempName = temper("addr")
+                
+                return [
+                    SSAMemoryAddressResolver(
+                        name: tempName,
+                        addressing: Addressing.stackPointer
+                    ),
+                    SSAMemoryWriteStatement(
+                        address: tempName,
+                        value: op0.registerName.ssa
+                    ),
+                    SSABinaryOpStatement(
+                        result: Register.gpr(.sp, .low16).ssa,
+                        op: .diff,
+                        lhs: .gpr(.sp, .low16),
+                        rhs: Int(2)
+                    )
+                ]
+            }
+            else if op0.operandType == .mem {
+                let address = temper("addr")
+                let val = temper("val")
+                let stack = temper("stack")
+                
+                return [
+                    SSAMemoryAddressResolver(
+                        name: address,
+                        addressing: Addressing(insn, op0)
+                    ),
+                    SSAMemoryReadStatement(
+                        name: val,
+                        address: address
+                    ),
+                    SSAMemoryAddressResolver(
+                        name: stack,
+                        addressing: Addressing.stackPointer
+                    ),
+                    SSAMemoryWriteStatement(
+                        address: stack,
+                        value: val
+                    ),
+                    SSABinaryOpStatement(
+                        result: Register.gpr(.sp, .low16).ssa,
+                        op: .diff,
+                        lhs: .gpr(.sp, .low16),
+                        rhs: Int(2)
+                    )
+                ]
+            }
+            else {
+                fatalError()
+            }
             
         case UD_Ipop:
             assert(op0.operandType == .reg)
@@ -769,6 +826,7 @@ extension SSABlock {
         case UD_Isub:
             return BinaryOpStatements(insn: insn, op: .diff, temper: temper)
 
+        case UD_Iimul: fallthrough // TODO
         case UD_Imul:
             return BinaryOpStatements(insn: insn, op: .mul, temper: temper)
 
@@ -1124,6 +1182,10 @@ extension SSABlock {
 
         case UD_Icld:
             // TODO: direction flag
+            return []
+            
+        case UD_Icbw:
+            // TODO: sign extend
             return []
             
         default:

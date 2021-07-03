@@ -29,13 +29,19 @@ struct CFGBlock {
 }
 
 struct CFGGraph: Graph {
-    let start:  UInt64
+    let realStart:  UInt64
     let blocks: [UInt64 : CFGBlock]
     
     let successors:   [UInt64 : [UInt64]]
     let predecessors: [UInt64 : [UInt64]]
     
     var nodes: [UInt64] { Array(blocks.keys) }
+
+    var start: UInt64 { CFGGraph.synteticStart }
+    var end: UInt64 { CFGGraph.synteticEnd }
+
+    static var synteticStart: UInt64 { 0xffffffffffffffff }
+    static var synteticEnd: UInt64 { 0xfffffffffffffffe }
     
     init(from xrefAnalisys: InstructionXrefs) {
         var blocks = [UInt64 : CFGBlock]()
@@ -72,8 +78,20 @@ struct CFGGraph: Graph {
             }
         }
         
+        successors[CFGGraph.synteticStart, default: []].append(xrefAnalisys.start)
+        predecessors[xrefAnalisys.start, default: []].append(CFGGraph.synteticStart)
+
+        for n in blocks.keys {
+            if successors[n]?.isEmpty == false {
+                successors[n, default: []].append(CFGGraph.synteticEnd)
+                predecessors[CFGGraph.synteticEnd, default: []].append(n)
+            }
+        }
         
-        self.start = xrefAnalisys.start
+        blocks[CFGGraph.synteticStart] = CFGBlock(start: CFGGraph.synteticStart)
+        blocks[CFGGraph.synteticEnd] = CFGBlock(start: CFGGraph.synteticEnd)
+        
+        self.realStart = xrefAnalisys.start
         self.blocks = blocks
         self.predecessors = predecessors
         self.successors = successors

@@ -30,6 +30,11 @@ func rewrite(_ statement: SSAStatement) -> String? {
         case .displacement(_, let d):
             return "\(s.name.cDeclaration) = 0x\(String(format: "%x", d));"
             
+        case .baseIndex(_, _, index: let i):
+            guard let base = s.baseVariable else { break }
+            guard let index = s.indexVariable else { break }
+            return "\(s.name.cDeclaration) = \(base.cName) + \(index.cName); // \(i)"
+            
         default:
             fatalError()
         }
